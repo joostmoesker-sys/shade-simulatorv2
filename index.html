@@ -158,8 +158,10 @@ let activeConfig = 1;
 // ═══════════════════════════════════════════════
 function zoneV(I, G) {
   const Iph = Isc * G;
-  if (I >= Iph - 1e-9) return -Vbp;
-  return VT * Math.log((Iph - I + I0) / I0);
+  const arg = Iph - I + I0;
+  if (arg <= 0) return -Vbp;
+  const V = VT * Math.log(arg / I0);
+  return V < -Vbp ? -Vbp : V;
 }
 function panelV(I, zones) {
   return zoneV(I,zones[0]) + zoneV(I,zones[1]) + zoneV(I,zones[2]);
@@ -196,9 +198,9 @@ function buildTable(zones) {
 function panelIatV(V, tbl) {
   if (V >= tbl[0].V) return 0;
   const last = tbl[tbl.length-1];
-  if (V <= last.V) return last.I;
+  if (V < last.V) return last.I;
   let lo = 0, hi = tbl.length - 1;
-  while (hi - lo > 1) { const m=(lo+hi)>>1; if (tbl[m].V >= V) lo=m; else hi=m; }
+  while (hi - lo > 1) { const m=(lo+hi)>>1; if (tbl[m].V > V) lo=m; else hi=m; }
   const dV = tbl[lo].V - tbl[hi].V;
   const t  = dV < 1e-12 ? 0 : (tbl[lo].V - V) / dV;
   return tbl[lo].I + t*(tbl[hi].I - tbl[lo].I);
