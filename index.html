@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PV Array Shade Simulator – Lucksolar LS-MD120-340W</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0f172a;
+      color: #cbd5e1;
+      padding: 14px 18px;
+    }
+
+    h1 { font-size: 1.3em; color: #38bdf8; letter-spacing: .3px; margin-bottom: 2px; }
+    .subtitle { font-size: .78em; color: #64748b; margin-bottom: 14px; }
+
+    .controls {
+      display: flex; gap: 7px; flex-wrap: wrap; align-items: center;
+      margin-bottom: 12px;
+    }
+    .ctrl-label { font-size: .75em; color: #64748b; }
+    .cfg-btn {
+      background: #1e293b; border: 1px solid #334155; color: #94a3b8;
+      padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: .73em;
+    }
+    .cfg-btn.active { background: #0369a1; border-color: #38bdf8; color: #fff; }
+    .clear-btn {
+      background: #7f1d1d; border: 1px solid #f87171; color: #fff;
+      padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: .73em;
+    }
+
+    .main-layout { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+    .left-panel  { flex: 0 0 auto; }
+    .right-panel { flex: 1 1 500px; min-width: 340px; }
+
+    #grid { display: block; cursor: crosshair; border: 1px solid #334155; border-radius: 5px;
+            background: #0f172a; }
+    .grid-hint { font-size: .7em; color: #475569; margin-top: 4px; }
+
+    .stats-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .stat { background: #1e293b; border-radius: 6px; padding: 6px 10px; flex: 1 1 110px; }
+    .stat-lbl { font-size: .63em; color: #64748b; margin-bottom: 2px; }
+    .stat-val { font-size: 1em; color: #38bdf8; font-weight: 700; }
+
+    .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .chart-box { background: #1e293b; border-radius: 8px; padding: 8px 10px; }
+    .chart-title { font-size: .7em; color: #64748b; text-align: center; margin-bottom: 4px; }
+
+    .power-box { background: #1e293b; border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
+
+    .legend-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+    .leg { display: flex; align-items: center; gap: 5px; font-size: .7em; color: #94a3b8; }
+    .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+<h1>🌤 PV Array Shade Simulator</h1>
+<p class="subtitle">
+  Lucksolar LS-MD120-340W &nbsp;·&nbsp; 3 × 9 array (27 panels · 9.18 kWp)
+  &nbsp;·&nbsp; Drag to shade &nbsp;·&nbsp; Right-click or button to clear
+</p>
+
+<div class="controls">
+  <span class="ctrl-label">Configuration:</span>
+  <button class="cfg-btn active" data-cfg="1">1 · SP 3×9 (1 MPPT)</button>
+  <button class="cfg-btn"        data-cfg="2">2 · TCT 3×9 (1 MPPT)</button>
+  <button class="cfg-btn"        data-cfg="3">3 · 3 strings (3 MPPT)</button>
+  <button class="cfg-btn"        data-cfg="4">4 · 3×3 TCT landscape (3 MPPT)</button>
+  <button class="cfg-btn"        data-cfg="5">5 · 3×3 TCT portrait (3 MPPT)</button>
+  <button class="clear-btn" id="clearBtn">✕ Clear Shade</button>
+</div>
+
+<div class="main-layout">
+
+  <div class="left-panel">
+    <canvas id="grid" width="622" height="170"></canvas>
+    <p class="grid-hint">Drag to add shade · zone dividers shown per configuration</p>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-lbl">Vmpp</div><div class="stat-val" id="sv-vmpp">–</div></div>
+      <div class="stat"><div class="stat-lbl">Impp</div><div class="stat-val" id="sv-impp">–</div></div>
+      <div class="stat"><div class="stat-lbl">Pmpp (active)</div><div class="stat-val" id="sv-pmpp">–</div></div>
+      <div class="stat"><div class="stat-lbl">STC max (all)</div><div class="stat-val">9.18 kW</div></div>
+    </div>
+  </div>
+
+  <div class="right-panel">
+    <div class="charts-row">
+      <div class="chart-box">
+        <div class="chart-title">I–V Curve</div>
+        <canvas id="ivChart" width="280" height="200"></canvas>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">P–V Curve</div>
+        <canvas id="pvChart" width="280" height="200"></canvas>
+      </div>
+    </div>
+    <div class="power-box">
+      <div class="chart-title">Total Output Power – All 5 Configurations</div>
+      <canvas id="powerChart" width="580" height="130"></canvas>
+    </div>
+    <div class="legend-row" id="mpptLegend"></div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  PANEL CONSTANTS  (Lucksolar LS-MD120-340W)
+// ═══════════════════════════════════════════════
+const Voc = 40.8, Isc = 10.45, Vmp = 33.6, Imp = 10.12;
+const P_STC = Vmp * Imp;    // ≈ 340 W
+
+const NZ    = 3;             // bypass zones per panel (zones in series)
+const Voc_z = Voc / NZ;     // 13.6 V per zone
+const VT    = 0.692;        // zone thermal voltage (V) — fitted to match Voc & Vmp
+const I0    = Isc / (Math.exp(Voc_z / VT) - 1);  // ≈ 3.05 e-8 A
+const Vbp   = 0.6;          // bypass diode forward voltage
+
+const NR = 3, NC = 9;       // rows, columns
+
+// ═══════════════════════════════════════════════
+//  GRID GEOMETRY
+// ═══════════════════════════════════════════════
+const CW = 66, CH = 50, CPAD = 2, OX = 4, OY = 4;
+
+function cellRect(r, c) {
+  return { x: OX + c*(CW+CPAD), y: OY + r*(CH+CPAD), w: CW, h: CH };
+}
+
+// Zone rect: orient 'L' = landscape (vertical dividers), 'P' = portrait (horizontal)
+function zoneRect(r, c, z, orient) {
+  const cr = cellRect(r, c);
+  return orient === 'L'
+    ? { x: cr.x + z*CW/3, y: cr.y, w: CW/3, h: CH }
+    : { x: cr.x, y: cr.y + z*CH/3, w: CW, h: CH/3 };
+}
+
+function rectOverlap(a, b) {
+  const ix = Math.max(0, Math.min(a.x+a.w, b.x+b.w) - Math.max(a.x, b.x));
+  const iy = Math.max(0, Math.min(a.y+a.h, b.y+b.h) - Math.max(a.y, b.y));
+  return ix * iy;
+}
+
+// ═══════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════
+let shade       = null;   // {x,y,w,h}
+let dragStart   = null;
+let dragCurrent = null;
+let activeConfig = 1;
+
+// ═══════════════════════════════════════════════
+//  PHYSICS — single-diode zone model
+// ═══════════════════════════════════════════════
+function zoneV(I, G) {
+  const Iph = Isc * G;
+  if (I >= Iph - 1e-9) return -Vbp;
+  return VT * Math.log((Iph - I + I0) / I0);
+}
+function panelV(I, zones) {
+  return zoneV(I,zones[0]) + zoneV(I,zones[1]) + zoneV(I,zones[2]);
+}
+function stringV(I, panels) {
+  let v = 0; for (const p of panels) v += panelV(I, p); return v;
+}
+
+function bisect(f, lo, hi, tol) {
+  tol = tol || 1e-5;
+  let fl = f(lo), fh = f(hi);
+  if (fl*fh > 0) return Math.abs(fl) < Math.abs(fh) ? lo : hi;
+  for (let k = 0; k < 64; k++) {
+    if (hi - lo < tol) break;
+    const m = (lo+hi)*0.5, fm = f(m);
+    if (fl*fm <= 0) { hi = m; fh = fm; } else { lo = m; fl = fm; }
+  }
+  return (lo+hi)*0.5;
+}
+
+// Panel lookup table: [{I,V}], I ascending / V descending
+function buildTable(zones) {
+  const n = 260, pts = new Set([0]);
+  for (let k = 1; k <= n; k++) pts.add(Isc * k / n);
+  for (const G of zones) {
+    const t = Isc * G;
+    if (t > 0.005) for (const dt of [-0.008,-0.002,0.002,0.008]) {
+      const v = t + dt; if (v > 0 && v <= Isc) pts.add(v);
+    }
+  }
+  return [...pts].sort((a,b)=>a-b).map(I => ({ I, V: panelV(I, zones) }));
+}
+
+function panelIatV(V, tbl) {
+  if (V >= tbl[0].V) return 0;
+  const last = tbl[tbl.length-1];
+  if (V <= last.V) return last.I;
+  let lo = 0, hi = tbl.length - 1;
+  while (hi - lo > 1) { const m=(lo+hi)>>1; if (tbl[m].V >= V) lo=m; else hi=m; }
+  const dV = tbl[lo].V - tbl[hi].V;
+  const t  = dV < 1e-12 ? 0 : (tbl[lo].V - V) / dV;
+  return tbl[lo].I + t*(tbl[hi].I - tbl[lo].I);
+}
+
+function rowIatV(V, tbls) {
+  let I = 0; for (const t of tbls) I += panelIatV(V, t); return I;
+}
+
+// ── IV curve generators ─────────────────────────────────────
+const N_PTS = 280;
+
+// Series-parallel: groups = array of strings (each string = array of zone-triples)
+function ivSP(groups) {
+  let Vmax = 0;
+  for (const str of groups) { const v = stringV(0, str); if (v > Vmax) Vmax = v; }
+  const curve = [];
+  for (let k = 0; k <= N_PTS; k++) {
+    const V = Vmax * (1 - k/N_PTS);
+    let I = 0;
+    for (const str of groups) {
+      const Ik = bisect(i => stringV(i,str) - V, 0, Isc+0.05, 1e-5);
+      I += Math.max(0, Ik);
+    }
+    curve.push({ V, I, P: V*I });
+  }
+  return curve;
+}
+
+// Total cross-tie: rows in series, panels per row in parallel
+function ivTCT(rows) {
+  const ncols = rows[0].length;
+  const rowTbls = rows.map(row => row.map(zones => buildTable(zones)));
+  const Imax = ncols * Isc;
+  const curve = [];
+  for (let k = 0; k <= N_PTS; k++) {
+    const I = Imax * k / N_PTS;
+    let V = 0;
+    for (const rt of rowTbls) {
+      const Vrow = bisect(v => rowIatV(v, rt) - I, -NZ*Vbp, Voc, 1e-4);
+      V += Vrow;
+    }
+    if (V < 0) break;
+    curve.push({ V, I, P: V*I });
+  }
+  return curve;
+}
+
+function findMPP(curve) {
+  let best = { P:0, V:0, I:0, idx:0 };
+  for (let i = 0; i < curve.length; i++)
+    if (curve[i].P > best.P) best = { ...curve[i], idx:i };
+  return best;
+}
+
+// ── per-config IV curves ─────────────────────────────────────
+function computeCfg1(irr) { return [ivSP([irr[0], irr[1], irr[2]])]; }
+function computeCfg2(irr) { return [ivTCT([irr[0], irr[1], irr[2]])]; }
+function computeCfg3(irr) { return [0,1,2].map(r => ivSP([irr[r]])); }
+function computeCfg4(irr) {
+  return [0,1,2].map(b => ivTCT([0,1,2].map(r => [b*3,b*3+1,b*3+2].map(c => irr[r][c]))));
+}
+function computeCfg5(irr) { return computeCfg4(irr); }  // same topology, different irr
+
+function computeAllConfigs(irrL, irrP) {
+  return [
+    computeCfg1(irrL), computeCfg2(irrL),
+    computeCfg3(irrL), computeCfg4(irrL), computeCfg5(irrP),
+  ];
+}
+function totalPower(curves) {
+  return curves.reduce((s,c) => s + findMPP(c).P, 0);
+}
+
+// ─── irradiance computation ───────────────────────────────────
+function computeIrr(shadeRect, orient) {
+  const irr = [];
+  for (let r = 0; r < NR; r++) {
+    const row = [];
+    for (let c = 0; c < NC; c++) {
+      const zones = [];
+      for (let z = 0; z < NZ; z++) {
+        const zr = zoneRect(r, c, z, orient);
+        const f  = shadeRect ? rectOverlap(shadeRect, zr) / (zr.w * zr.h) : 0;
+        zones.push(Math.max(0, Math.min(1, 1 - f)));
+      }
+      row.push(zones);
+    }
+    irr.push(row);
+  }
+  return irr;
+}
+
+// ═══════════════════════════════════════════════
+//  GRID DRAWING
+// ═══════════════════════════════════════════════
+const MPPT_COLORS = ['#0ea5e9','#f59e0b','#22c55e'];
+const gridCanvas = document.getElementById('grid');
+const gctx       = gridCanvas.getContext('2d');
+
+function zoneOrient(cfg) { return cfg === 5 ? 'P' : 'L'; }
+
+function drawGrid() {
+  const cfg = activeConfig;
+  const orient = zoneOrient(cfg);
+  gctx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);
+
+  for (let r = 0; r < NR; r++) {
+    for (let c = 0; c < NC; c++) {
+      const cr = cellRect(r, c);
+
+      // MPPT group tint
+      let borderCol = '#475569';
+      if (cfg === 3) {
+        gctx.fillStyle = MPPT_COLORS[r] + '28';
+        borderCol = MPPT_COLORS[r];
+      } else if (cfg === 4 || cfg === 5) {
+        const b = Math.floor(c/3);
+        gctx.fillStyle = MPPT_COLORS[b] + '28';
+        borderCol = MPPT_COLORS[b];
+      } else {
+        gctx.fillStyle = '#1e3a52';
+      }
+      gctx.fillRect(cr.x, cr.y, cr.w, cr.h);
+
+      // zone dividers
+      gctx.strokeStyle = '#334155';
+      gctx.lineWidth   = 0.8;
+      if (orient === 'L') {
+        for (let z = 1; z < NZ; z++) {
+          const x = cr.x + z*CW/NZ;
+          gctx.beginPath(); gctx.moveTo(x, cr.y); gctx.lineTo(x, cr.y+CH); gctx.stroke();
+        }
+      } else {
+        for (let z = 1; z < NZ; z++) {
+          const y = cr.y + z*CH/NZ;
+          gctx.beginPath(); gctx.moveTo(cr.x, y); gctx.lineTo(cr.x+CW, y); gctx.stroke();
+        }
+      }
+
+      // panel border
+      gctx.strokeStyle = borderCol;
+      gctx.lineWidth   = cfg >= 3 ? 1.5 : 1;
+      gctx.strokeRect(cr.x+0.5, cr.y+0.5, cr.w-1, cr.h-1);
+
+      // small row/col labels
+      gctx.fillStyle = '#64748b';
+      gctx.font = '8px Arial';
+      if (r === 0) gctx.fillText('C'+(c+1), cr.x+3, cr.y+9);
+      if (c === 0) gctx.fillText('R'+(r+1), cr.x+2, cr.y+CH-3);
+    }
+  }
+
+  // committed shade overlay
+  if (shade) {
+    gctx.fillStyle   = 'rgba(30,120,220,0.38)';
+    gctx.fillRect(shade.x, shade.y, shade.w, shade.h);
+    gctx.strokeStyle = '#60a5fa';
+    gctx.lineWidth   = 1.5;
+    gctx.strokeRect(shade.x, shade.y, shade.w, shade.h);
+  }
+
+  // drag preview
+  if (dragStart && dragCurrent) {
+    const r = normRect(dragStart, dragCurrent);
+    gctx.fillStyle   = 'rgba(30,120,220,0.18)';
+    gctx.fillRect(r.x, r.y, r.w, r.h);
+    gctx.setLineDash([4,3]);
+    gctx.strokeStyle = '#93c5fd';
+    gctx.lineWidth   = 1;
+    gctx.strokeRect(r.x, r.y, r.w, r.h);
+    gctx.setLineDash([]);
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  MOUSE / TOUCH
+// ═══════════════════════════════════════════════
+function normRect(a, b) {
+  return { x: Math.min(a.x,b.x), y: Math.min(a.y,b.y),
+           w: Math.abs(b.x-a.x), h: Math.abs(b.y-a.y) };
+}
+function canvasPos(e) {
+  const rect  = gridCanvas.getBoundingClientRect();
+  const scaleX = gridCanvas.width  / rect.width;
+  const scaleY = gridCanvas.height / rect.height;
+  const src   = e.touches ? e.touches[0] : e;
+  return { x: (src.clientX-rect.left)*scaleX, y: (src.clientY-rect.top)*scaleY };
+}
+
+gridCanvas.addEventListener('mousedown', e => {
+  if (e.button === 2) { shade = dragStart = dragCurrent = null; updateAll(); return; }
+  dragStart = dragCurrent = canvasPos(e);
+});
+gridCanvas.addEventListener('mousemove', e => {
+  if (!dragStart) return;
+  dragCurrent = canvasPos(e);
+  drawGrid();
+});
+gridCanvas.addEventListener('mouseup', e => {
+  if (!dragStart) return;
+  dragCurrent = canvasPos(e);
+  const r = normRect(dragStart, dragCurrent);
+  if (r.w > 3 || r.h > 3) shade = r;
+  dragStart = dragCurrent = null;
+  updateAll();
+});
+gridCanvas.addEventListener('mouseleave', () => {
+  if (dragStart && dragCurrent) {
+    const r = normRect(dragStart, dragCurrent);
+    if (r.w > 3 || r.h > 3) shade = r;
+    dragStart = dragCurrent = null;
+    updateAll();
+  }
+});
+gridCanvas.addEventListener('contextmenu', e => e.preventDefault());
+gridCanvas.addEventListener('touchstart', e => {
+  e.preventDefault(); dragStart = dragCurrent = canvasPos(e);
+}, { passive: false });
+gridCanvas.addEventListener('touchmove', e => {
+  e.preventDefault(); if (!dragStart) return; dragCurrent = canvasPos(e); drawGrid();
+}, { passive: false });
+gridCanvas.addEventListener('touchend', e => {
+  e.preventDefault(); if (!dragStart) return;
+  const r = normRect(dragStart, dragCurrent || dragStart);
+  if (r.w > 3 || r.h > 3) shade = r;
+  dragStart = dragCurrent = null; updateAll();
+}, { passive: false });
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  shade = dragStart = dragCurrent = null; updateAll();
+});
+document.querySelectorAll('.cfg-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeConfig = +btn.dataset.cfg;
+    document.querySelectorAll('.cfg-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    updateAll();
+  });
+});
+
+// ═══════════════════════════════════════════════
+//  SELF-CONTAINED CANVAS CHARTING
+// ═══════════════════════════════════════════════
+const CURVE_COLORS = ['#38bdf8','#fb923c','#34d399','#f472b6','#a78bfa'];
+const BAR_COLORS   = ['#0ea5e9','#f59e0b','#22c55e','#a855f7','#ec4899'];
+const GRID_COLOR   = '#1e3a5f';
+const AXIS_COLOR   = '#475569';
+const TEXT_COLOR   = '#64748b';
+
+/**
+ * Draw a single axis-aligned chart with multiple line series.
+ * @param {HTMLCanvasElement} canvas
+ * @param {Array<{data:Array<{x,y}>, color:string, label:string}>} series
+ * @param {{xLabel, yLabel, mppDots:Array<{x,y,color}>}} opts
+ */
+function drawLineChart(canvas, series, opts) {
+  const ctx  = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  if (!series.length) return;
+
+  // compute data bounds across all series
+  let xMin=Infinity, xMax=-Infinity, yMin=0, yMax=-Infinity;
+  for (const s of series) for (const p of s.data) {
+    if (p.x < xMin) xMin = p.x;
+    if (p.x > xMax) xMax = p.x;
+    if (p.y > yMax) yMax = p.y;
+  }
+  if (xMax <= xMin) xMax = xMin + 1;
+  if (yMax <= 0)    yMax = 1;
+  // nice-round the max
+  yMax = niceMax(yMax);
+  xMax = niceMax(xMax);
+
+  const pad = { t:8, r:12, b:36, l:46 };
+  const pw = W - pad.l - pad.r;
+  const ph = H - pad.t - pad.b;
+
+  function tx(x) { return pad.l + (x - xMin)/(xMax - xMin) * pw; }
+  function ty(y) { return pad.t + ph - (y - yMin)/(yMax - yMin) * ph; }
+
+  // grid lines + tick labels
+  ctx.font = '9px Arial';
+  ctx.fillStyle = TEXT_COLOR;
+  ctx.strokeStyle = GRID_COLOR;
+  ctx.lineWidth = 0.7;
+  const NY = 5, NX = 5;
+  for (let i = 0; i <= NY; i++) {
+    const y = yMin + (yMax - yMin)*i/NY;
+    const py = ty(y);
+    ctx.beginPath(); ctx.moveTo(pad.l, py); ctx.lineTo(pad.l+pw, py); ctx.stroke();
+    ctx.fillStyle = TEXT_COLOR;
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtNum(y), pad.l-3, py+3);
+  }
+  for (let i = 0; i <= NX; i++) {
+    const x = xMin + (xMax - xMin)*i/NX;
+    const px = tx(x);
+    ctx.beginPath(); ctx.moveTo(px, pad.t); ctx.lineTo(px, pad.t+ph); ctx.stroke();
+    ctx.fillStyle = TEXT_COLOR;
+    ctx.textAlign = 'center';
+    ctx.fillText(fmtNum(x), px, pad.t+ph+10);
+  }
+
+  // axes
+  ctx.strokeStyle = AXIS_COLOR;
+  ctx.lineWidth   = 1;
+  ctx.strokeRect(pad.l, pad.t, pw, ph);
+
+  // axis labels
+  ctx.fillStyle = TEXT_COLOR;
+  ctx.textAlign = 'center';
+  ctx.font = '9px Arial';
+  ctx.fillText(opts.xLabel || 'V', pad.l + pw/2, H - 2);
+  ctx.save();
+  ctx.translate(10, pad.t + ph/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText(opts.yLabel || '', 0, 0);
+  ctx.restore();
+
+  // series lines
+  for (const s of series) {
+    if (!s.data.length) continue;
+    ctx.beginPath();
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth   = 1.8;
+    let first = true;
+    for (const p of s.data) {
+      const px = tx(p.x), py = ty(p.y);
+      first ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      first = false;
+    }
+    ctx.stroke();
+  }
+
+  // MPP dots (filled circles)
+  if (opts.mppDots) {
+    for (const d of opts.mppDots) {
+      ctx.beginPath();
+      ctx.arc(tx(d.x), ty(d.y), 5, 0, 2*Math.PI);
+      ctx.fillStyle   = d.color;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth   = 1;
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+}
+
+/**
+ * Draw horizontal bar chart.
+ * @param {HTMLCanvasElement} canvas
+ * @param {string[]} labels
+ * @param {number[]} values
+ * @param {string[]} colors
+ * @param {number} highlightIdx  – index of bar to highlight with a white border
+ */
+function drawBarChart(canvas, labels, values, colors, highlightIdx) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const maxVal = Math.max(...values, 1);
+  const nicMax = niceMax(maxVal * 1.05);
+
+  const pad = { t:8, r:16, b:26, l:90 };
+  const pw  = W - pad.l - pad.r;
+  const ph  = H - pad.t - pad.b;
+  const barH   = (ph / labels.length) * 0.6;
+  const barGap = (ph / labels.length) * 0.4;
+
+  // x grid
+  ctx.font = '9px Arial';
+  const NX = 5;
+  for (let i = 0; i <= NX; i++) {
+    const x = nicMax * i / NX;
+    const px = pad.l + (x / nicMax) * pw;
+    ctx.strokeStyle = GRID_COLOR; ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.moveTo(px, pad.t); ctx.lineTo(px, pad.t+ph); ctx.stroke();
+    ctx.fillStyle = TEXT_COLOR; ctx.textAlign = 'center';
+    ctx.fillText(fmtNum(x), px, pad.t+ph+10);
+  }
+  // x-axis label
+  ctx.fillStyle = TEXT_COLOR; ctx.textAlign = 'center';
+  ctx.fillText('W', pad.l+pw/2, H-2);
+
+  // bars
+  for (let i = 0; i < labels.length; i++) {
+    const y   = pad.t + i * (barH + barGap);
+    const bw  = (values[i] / nicMax) * pw;
+
+    ctx.fillStyle = colors[i] + 'cc';
+    ctx.fillRect(pad.l, y, bw, barH);
+
+    if (i === highlightIdx) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(pad.l, y, bw, barH);
+    }
+
+    // label
+    ctx.fillStyle = '#94a3b8'; ctx.textAlign = 'right'; ctx.font = '9px Arial';
+    ctx.fillText(labels[i], pad.l - 4, y + barH*0.7);
+
+    // value
+    ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'left'; ctx.font = 'bold 9px Arial';
+    ctx.fillText(values[i].toFixed(0)+' W', pad.l + bw + 3, y + barH*0.7);
+  }
+}
+
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(v)));
+  const frac = v / mag;
+  const nice = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10;
+  return nice * mag;
+}
+
+function fmtNum(v) {
+  if (v >= 1000) return (v/1000).toFixed(1)+'k';
+  if (v >= 100)  return v.toFixed(0);
+  if (v >= 10)   return v.toFixed(1);
+  return v.toFixed(2);
+}
+
+// ═══════════════════════════════════════════════
+//  MAIN UPDATE
+// ═══════════════════════════════════════════════
+function updateAll() {
+  const orient = zoneOrient(activeConfig);
+  const irrL   = computeIrr(shade, 'L');
+  const irrP   = computeIrr(shade, 'P');
+
+  let activeCurves;
+  switch (activeConfig) {
+    case 1: activeCurves = computeCfg1(irrL); break;
+    case 2: activeCurves = computeCfg2(irrL); break;
+    case 3: activeCurves = computeCfg3(irrL); break;
+    case 4: activeCurves = computeCfg4(irrL); break;
+    case 5: activeCurves = computeCfg5(irrP); break;
+  }
+
+  // ── IV and PV chart ─────────────────────────
+  const ivSeries = [], pvSeries = [], ivMPP = [], pvMPP = [];
+  const seriesLabels = activeConfig >= 3
+    ? activeCurves.map((_,i) => `MPPT ${i+1}`)
+    : ['Array'];
+
+  activeCurves.forEach((curve, i) => {
+    const col = CURVE_COLORS[i % CURVE_COLORS.length];
+    const mpp = findMPP(curve);
+    ivSeries.push({ data: curve.map(p=>({x:p.V, y:p.I})), color: col, label: seriesLabels[i] });
+    pvSeries.push({ data: curve.map(p=>({x:p.V, y:p.P})), color: col, label: seriesLabels[i] });
+    ivMPP.push({ x: mpp.V, y: mpp.I, color: col });
+    pvMPP.push({ x: mpp.V, y: mpp.P, color: col });
+  });
+
+  drawLineChart(document.getElementById('ivChart'), ivSeries, {
+    xLabel: 'Voltage (V)', yLabel: 'Current (A)', mppDots: ivMPP,
+  });
+  drawLineChart(document.getElementById('pvChart'), pvSeries, {
+    xLabel: 'Voltage (V)', yLabel: 'Power (W)', mppDots: pvMPP,
+  });
+
+  // ── power bar chart ──────────────────────────
+  const allCfg = computeAllConfigs(irrL, irrP);
+  const powers = allCfg.map(totalPower);
+  drawBarChart(
+    document.getElementById('powerChart'),
+    ['1·SP','2·TCT','3·Strings','4·TCT land','5·TCT port'],
+    powers, BAR_COLORS, activeConfig - 1
+  );
+
+  // ── stats ────────────────────────────────────
+  const Ptotal = totalPower(activeCurves);
+  if (activeCurves.length === 1) {
+    const m = findMPP(activeCurves[0]);
+    document.getElementById('sv-vmpp').textContent = m.V.toFixed(1) + ' V';
+    document.getElementById('sv-impp').textContent = m.I.toFixed(2) + ' A';
+  } else {
+    document.getElementById('sv-vmpp').textContent =
+      activeCurves.map(c => findMPP(c).V.toFixed(0)).join(' / ') + ' V';
+    document.getElementById('sv-impp').textContent =
+      activeCurves.map(c => findMPP(c).I.toFixed(1)).join(' / ') + ' A';
+  }
+  document.getElementById('sv-pmpp').textContent = (Ptotal/1000).toFixed(3) + ' kW';
+
+  // ── MPPT legend (configs 3-5) ─────────────────
+  const legDiv = document.getElementById('mpptLegend');
+  legDiv.innerHTML = '';
+  if (activeConfig >= 3) {
+    activeCurves.forEach((c, i) => {
+      const mpp = findMPP(c);
+      const label = activeConfig === 3
+        ? `MPPT ${i+1} – row ${i+1}: ${mpp.P.toFixed(0)} W`
+        : `MPPT ${i+1} – cols ${i*3+1}–${i*3+3}: ${mpp.P.toFixed(0)} W`;
+      legDiv.innerHTML +=
+        `<div class="leg">
+           <div class="leg-dot" style="background:${CURVE_COLORS[i]}"></div>
+           ${label}
+         </div>`;
+    });
+    legDiv.innerHTML +=
+      `<div class="leg" style="color:#e2e8f0;font-weight:700">
+         Σ ${(Ptotal/1000).toFixed(3)} kW
+       </div>`;
+  }
+
+  // ── grid ──────────────────────────────────────
+  drawGrid();
+}
+
+// Boot
+updateAll();
+</script>
+</body>
+</html>
