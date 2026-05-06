@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { sceneObjectKindLabel } from '../model/sceneObjectLabels';
 import { useProjectStore } from '../store/projectStore';
 import type { BuildingObject, SceneObject, TreeObject } from '../model/schema';
 
@@ -13,10 +14,6 @@ const UNDERGROWTH_OPTIONS: { value: Undergrowth; label: string }[] = [
   { value: 'shrubs', label: 'Struiken' },
   { value: 'dense', label: 'Dichte ondergroei' },
 ];
-
-function objectLabel(object: SceneObject): string {
-  return object.kind === 'tree' ? 'Boom' : 'Gebouw';
-}
 
 export function ObjectsTab() {
   const project = useProjectStore((s) => s.project);
@@ -120,7 +117,7 @@ export function ObjectsTab() {
                 >
                   <span>{object.name}</span>
                   <small>
-                    {objectLabel(object)} · {object.position.lat.toFixed(5)}, {object.position.lon.toFixed(5)}
+                    {sceneObjectKindLabel(object.kind)} · {object.position.lat.toFixed(5)}, {object.position.lon.toFixed(5)}
                   </small>
                 </button>
               </li>
@@ -134,7 +131,7 @@ export function ObjectsTab() {
       <section className="editor-detail">
         {selectedObject ? (
           <form className="property-form object-form" aria-label="Object eigenschappen">
-            <h3>{objectLabel(selectedObject)}</h3>
+            <h3>{sceneObjectKindLabel(selectedObject.kind)}</h3>
             <label>
               Naam
               <input

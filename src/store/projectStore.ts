@@ -146,6 +146,15 @@ function defaultBuildingFootprint(center: { lat: number; lon: number }): [number
   ];
 }
 
+function nextSelectedIdAfterRemoval<T extends { id: string }>(
+  currentSelectedId: string | null,
+  removedId: string,
+  items: T[],
+): string | null {
+  if (currentSelectedId !== removedId) return currentSelectedId;
+  return items.find((item) => item.id !== removedId)?.id ?? null;
+}
+
 export const useProjectStore = create<ProjectStoreState>((set) => ({
   project: createProject({ name: 'Nieuw project', location: initialLocation }),
   activeTab: 'locatie',
@@ -250,7 +259,7 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
         },
       }),
       selectedSceneObjectId:
-        state.selectedSceneObjectId === id ? state.project.scene.objects.find((item) => item.id !== id)?.id ?? null : state.selectedSceneObjectId,
+        nextSelectedIdAfterRemoval(state.selectedSceneObjectId, id, state.project.scene.objects),
     })),
   addPanelType: (input = {}) => {
     let created: PanelType | null = null;
@@ -379,7 +388,7 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
         },
       }),
       selectedPVArrayId:
-        state.selectedPVArrayId === id ? state.project.pv.arrays.find((item) => item.id !== id)?.id ?? null : state.selectedPVArrayId,
+        nextSelectedIdAfterRemoval(state.selectedPVArrayId, id, state.project.pv.arrays),
     })),
   addInverter: (input = {}) => {
     let created: Inverter | null = null;

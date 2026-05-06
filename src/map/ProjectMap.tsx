@@ -3,6 +3,7 @@ import maplibregl, { type GeoJSONSource, type Map as MapLibreMap, Marker } from 
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { isInsideNetherlands } from '../location/geocode';
+import { sceneObjectKindLabel } from '../model/sceneObjectLabels';
 import type { BuildingObject, LatLon, PanelType, PVArray, SceneObject } from '../model/schema';
 import { useProjectStore } from '../store/projectStore';
 import { buildOsmRasterStyle, type MapBaseLayer } from './osmStyle';
@@ -405,7 +406,7 @@ export function ProjectMap() {
       </div>
       {activeTab === 'objecten' && objectMapAddKind && (
         <div className="map-mode-banner" role="status">
-          Klik op de kaart om een {objectMapAddKind === 'tree' ? 'boom' : 'gebouw'} te plaatsen.
+          Klik op de kaart om een {sceneObjectKindLabel(objectMapAddKind).toLowerCase()} te plaatsen.
         </div>
       )}
       <div
