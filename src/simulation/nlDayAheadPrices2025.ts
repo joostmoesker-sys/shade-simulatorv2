@@ -1,9 +1,10 @@
 // Raw Netherlands day-ahead prices for 2025, EUR/MWh, aligned to UTC hourly weather samples.
 // Source: ENTSO-E day-ahead price data for bidding zone NL, mirrored at
 // https://github.com/JohannesBroens/eu-electricity-forecasting/blob/e056e9c8183a9c44f7947120085e74f17f1d8ecf/data/raw/entsoe/NL/day_ahead_prices.parquet
-// The source contains hourly values until 2025-10-01 and quarter-hourly values
-// afterwards; quarter-hourly values are averaged into the matching UTC hour so
-// tariff timestamps stay aligned with Open-Meteo hourly weather samples.
+// This array covers the full 2025 UTC hourly timeline. The upstream source
+// contains hourly values until 2025-10-01 and quarter-hourly values afterwards;
+// quarter-hourly values are averaged into the matching UTC hour so tariff
+// timestamps stay aligned with Open-Meteo hourly weather samples.
 // If this raw source is regenerated, keep the output as exactly 8760 UTC-hour
 // EUR/MWh values and update the validation coverage in economicSimulation tests.
 

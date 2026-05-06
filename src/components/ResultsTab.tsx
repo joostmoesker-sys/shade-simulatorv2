@@ -18,7 +18,7 @@ function percentLabel(value: number): string {
 }
 
 function safeFileName(name: string, suffix: string): string {
-  const cleaned = name.trim().toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-');
+  const cleaned = name.trim().toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/-+/g, '-');
   return `${cleaned || 'shade-project'}-${suffix}`;
 }
 

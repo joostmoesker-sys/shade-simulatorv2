@@ -49,6 +49,7 @@ function summarizeString(
     arrayCount: new Set(panelRefs.map((panel) => panel.array.id)).size,
     vmpV: panelRefs.reduce((sum, panel) => sum + panel.panelType.vmpV, 0),
     vocV: panelRefs.reduce((sum, panel) => sum + panel.panelType.vocV, 0),
+    // Series strings are current-limited by the weakest panel when arrays use different panel types.
     impA: Math.min(...panelRefs.map((panel) => panel.panelType.impA)),
     iscA: Math.min(...panelRefs.map((panel) => panel.panelType.iscA)),
     pmaxW: panelRefs.reduce((sum, panel) => sum + panel.panelType.pmaxW, 0),

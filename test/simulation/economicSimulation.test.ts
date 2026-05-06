@@ -49,18 +49,23 @@ describe('phase 4 economic simulation', () => {
   it('generates 2025 NL day-ahead buy and sell tariffs from raw hourly prices', () => {
     const tariffs = generateEconomicTariffs([
       { timestamp: '2025-01-01T00:00:00Z' },
+      { timestamp: '2025-07-01T12:00:00Z' },
       { timestamp: '2025-12-31T23:00:00Z' },
     ]);
 
-    // Raw source values are 6.24 and 63.44 EUR/MWh, exposed to tariffs as EUR/kWh.
+    // Raw source values are exposed to tariffs as EUR/kWh.
     expect(rawDayAheadPriceEurPerKwh('2025-01-01T00:00:00Z')).toBeCloseTo(0.00624);
+    expect(rawDayAheadPriceEurPerKwh('2025-07-01T12:00:00Z')).toBeCloseTo(0.04754);
     expect(rawDayAheadPriceEurPerKwh('2025-12-31T23:00:00Z')).toBeCloseTo(0.06344);
     expect(tariffs.sell[0]).toBeCloseTo(0.00624);
-    expect(tariffs.sell[1]).toBeCloseTo(0.06344);
+    expect(tariffs.sell[1]).toBeCloseTo(0.04754);
+    expect(tariffs.sell[2]).toBeCloseTo(0.06344);
     expect(tariffs.buy[0]).toBeCloseTo(0.00624 + 0.1316 + 0.03);
-    expect(tariffs.buy[1]).toBeCloseTo(0.06344 + 0.1316 + 0.03);
+    expect(tariffs.buy[1]).toBeCloseTo(0.04754 + 0.1316 + 0.03);
+    expect(tariffs.buy[2]).toBeCloseTo(0.06344 + 0.1316 + 0.03);
     expect(tariffs.buy[0]).toBeGreaterThan(tariffs.sell[0]);
     expect(tariffs.buy[1]).toBeGreaterThan(tariffs.sell[1]);
+    expect(tariffs.buy[2]).toBeGreaterThan(tariffs.sell[2]);
   });
 
   it('returns no raw dynamic price outside the 2025 hourly dataset', () => {

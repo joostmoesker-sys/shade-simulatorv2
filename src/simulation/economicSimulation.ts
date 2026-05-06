@@ -15,6 +15,7 @@ const DEFAULT_GRID_EXPORT_KW = 17;
 const RAW_PRICE_YEAR = 2025;
 const RAW_PRICE_START_MS = Date.UTC(RAW_PRICE_YEAR, 0, 1);
 const HOURS_PER_YEAR = 8760;
+const MS_PER_HOUR = 3_600_000;
 
 if (NL_DAY_AHEAD_PRICE_2025_EUR_MWH.length !== HOURS_PER_YEAR) {
   throw new Error(`Expected ${HOURS_PER_YEAR} raw 2025 NL day-ahead prices`);
@@ -73,7 +74,7 @@ export function rawDayAheadPriceEurPerKwh(timestamp: string): number | null {
   if (!Number.isFinite(ms)) return null;
   // Prices and Open-Meteo weather samples are both indexed on the UTC hourly
   // timeline. This avoids local DST 23/25-hour-day ambiguity in Europe/Amsterdam.
-  const index = Math.floor((ms - RAW_PRICE_START_MS) / 3_600_000);
+  const index = Math.floor((ms - RAW_PRICE_START_MS) / MS_PER_HOUR);
   if (index < 0 || index >= HOURS_PER_YEAR) return null;
   return NL_DAY_AHEAD_PRICE_2025_EUR_MWH[index] / 1000;
 }
