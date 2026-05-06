@@ -36,7 +36,7 @@ export function SimulationTab() {
   const selectedMinute = minuteOfDay(timestamp);
   const solar = calculateSolarPosition(date, project.location);
   const weather = normalizeWeather({}, solar);
-  const shadows = buildShadowFeatureCollection(project.scene.objects, solar);
+  const shadows = buildShadowFeatureCollection(project.scene.objects, solar, { timestamp });
   const shadeResults = estimateArrayShadeFactors(project.pv.arrays, project.pv.panelTypes, shadows);
 
   const arrayResults = project.pv.arrays.map((array) => {

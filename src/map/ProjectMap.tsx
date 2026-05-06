@@ -329,7 +329,7 @@ export function ProjectMap() {
     );
     const solar = calculateSolarPosition(new Date(simulationPreviewTimestamp), project.location);
     (map.getSource('shade-shadows') as GeoJSONSource).setData(
-      buildShadowFeatureCollection(project.scene.objects, solar) as unknown as Parameters<
+      buildShadowFeatureCollection(project.scene.objects, solar, { timestamp: simulationPreviewTimestamp }) as unknown as Parameters<
         GeoJSONSource['setData']
       >[0],
     );

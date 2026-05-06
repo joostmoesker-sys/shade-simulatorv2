@@ -54,10 +54,38 @@ describe('shading preview', () => {
       },
     ];
 
-    const shadows = buildShadowFeatureCollection(objects, { azimuthDeg: 180, elevationDeg: 30, zenithDeg: 60 });
+    const shadows = buildShadowFeatureCollection(objects, { azimuthDeg: 180, elevationDeg: 30, zenithDeg: 60 }, { timestamp: '2026-06-21T12:00:00Z' });
 
-    expect(shadows.features).toHaveLength(2);
+    expect(shadows.features).toHaveLength(3);
     expect(shadows.features[0].geometry.coordinates[0].length).toBeGreaterThan(4);
+    expect(shadows.features.map((feature) => feature.properties.part)).toEqual(['crown', 'undergrowth', 'building']);
+    for (const feature of shadows.features) {
+      const ring = feature.geometry.coordinates[0];
+      expect(ring[0]).toEqual(ring[ring.length - 1]);
+    }
+  });
+
+  it('uses prototype-style seasonal foliage and skips undergrowth when disabled', () => {
+    const tree: SceneObject = {
+      id: 'tree',
+      kind: 'tree',
+      name: 'Boom',
+      position: { lat: 52, lon: 5 },
+      heightM: 8,
+      crownRadiusM: 6,
+      trunkHeightM: 2,
+      density: 0.7,
+      undergrowth: 'none',
+      deciduous: true,
+    };
+
+    const solar = { azimuthDeg: 180, elevationDeg: 30, zenithDeg: 60 };
+    const winter = buildShadowFeatureCollection([tree], solar, { timestamp: '2026-01-15T12:00:00Z' });
+    const summer = buildShadowFeatureCollection([tree], solar, { timestamp: '2026-06-15T12:00:00Z' });
+
+    expect(winter.features).toHaveLength(1);
+    expect(winter.features[0].properties.part).toBe('crown');
+    expect(summer.features[0].geometry.coordinates[0][0][1]).not.toBe(winter.features[0].geometry.coordinates[0][0][1]);
   });
 
   it('estimates array shade when an array point falls inside a shadow polygon', () => {
