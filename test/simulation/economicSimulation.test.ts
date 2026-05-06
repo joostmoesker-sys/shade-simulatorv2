@@ -46,6 +46,7 @@ describe('phase 4 economic simulation', () => {
       { timestamp: '2025-12-31T23:00:00Z' },
     ]);
 
+    // Raw source values are 6.24 and 63.44 EUR/MWh, exposed to tariffs as EUR/kWh.
     expect(rawDayAheadPriceEurPerKwh('2025-01-01T00:00:00Z')).toBeCloseTo(0.00624);
     expect(rawDayAheadPriceEurPerKwh('2025-12-31T23:00:00Z')).toBeCloseTo(0.06344);
     expect(tariffs.sell[0]).toBeCloseTo(0.00624);

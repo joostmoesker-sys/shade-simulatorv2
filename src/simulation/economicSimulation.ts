@@ -8,6 +8,10 @@ const EPSILON_KWH = 1e-7;
 const TARGET_SOC_FRACTION = 0.5;
 const DEFAULT_GRID_EXPORT_KW = 17;
 
+// Dynamic pricing intentionally uses only the raw 2025 NL dataset so each
+// tariff hour aligns with the 2025 Open-Meteo weather year. Timestamps outside
+// 2025 return null and dynamic tariff generation fails instead of inventing a
+// synthetic profile for another year.
 const RAW_PRICE_YEAR = 2025;
 const RAW_PRICE_START_MS = Date.UTC(RAW_PRICE_YEAR, 0, 1);
 const HOURS_PER_YEAR = 8760;
