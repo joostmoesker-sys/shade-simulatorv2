@@ -7,11 +7,12 @@ import { sceneObjectKindLabel } from '../model/sceneObjectLabels';
 import type { BuildingObject, LatLon, PanelType, PVArray, SceneObject } from '../model/schema';
 import { useProjectStore } from '../store/projectStore';
 import { buildOsmRasterStyle, type MapBaseLayer } from './osmStyle';
-import { arrayFootprintRing, bearing, getArrayDimensions, offsetPoint } from './pvArrayGeometry';
+import { arrayFootprintRing, bearing, getArrayDimensions, METERS_PER_DEG_LAT, offsetPoint } from './pvArrayGeometry';
 
 const DEFAULT_ZOOM = 18;
 const LOCATION_ZOOM = 16;
 const ROTATE_HANDLE_OFFSET_M = 4;
+const TREE_CENTER_MARKER_RADIUS = 6;
 
 const ARROW_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="24" height="36">' +
@@ -61,8 +62,8 @@ function buildSceneFeatureCollection(objects: SceneObject[]): Record<string, unk
  * 1° latitude ≈ 111 320 m everywhere; 1° longitude shrinks by cos(lat).
  */
 function crownCircleRing(lat: number, lon: number, radiusM: number, steps = 32): [number, number][] {
-  const dLat = radiusM / 111_320;
-  const dLon = radiusM / (111_320 * Math.cos((lat * Math.PI) / 180));
+  const dLat = radiusM / METERS_PER_DEG_LAT;
+  const dLon = radiusM / (METERS_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180));
   const ring: [number, number][] = [];
   for (let i = 0; i <= steps; i++) {
     const angle = (2 * Math.PI * i) / steps;
@@ -217,7 +218,7 @@ export function ProjectMap() {
         source: 'scene-objects',
         filter: ['==', ['get', 'kind'], 'tree'],
         paint: {
-          'circle-radius': 6,
+          'circle-radius': TREE_CENTER_MARKER_RADIUS,
           'circle-color': '#2f7d32',
           'circle-opacity': 0.9,
           'circle-stroke-color': '#145a18',
