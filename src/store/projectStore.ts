@@ -16,11 +16,13 @@ import {
   type Inverter,
   type Location,
   type MPPT,
+  type MPPTWiring,
   type PanelType,
   type Project,
   type PVArray,
   type SceneObject,
   type TreeObject,
+  type WiringString,
 } from '../model/schema';
 import { NL_DEFAULT_CENTER } from '../location/geocode';
 
@@ -38,8 +40,8 @@ export const PROJECT_TABS: { id: ProjectTab; label: string }[] = [
   { id: 'locatie', label: 'Locatie' },
   { id: 'objecten', label: 'Objecten' },
   { id: 'pv-arrays', label: 'PV Arrays' },
-  { id: 'bekabeling', label: 'Bekabeling' },
   { id: 'inverters', label: 'Inverters' },
+  { id: 'bekabeling', label: 'Bekabeling' },
   { id: 'accu-verbruik', label: 'Accu & Verbruik' },
   { id: 'simulatie', label: 'Simulatie' },
   { id: 'resultaten', label: 'Resultaten' },
@@ -121,6 +123,12 @@ interface ProjectStoreState {
   addMPPT: (inverterId: string, input?: AddMPPTInput) => MPPT;
   updateMPPT: (inverterId: string, mpptId: string, patch: Partial<MPPT>) => void;
   removeMPPT: (inverterId: string, mpptId: string) => void;
+  addWiringString: (
+    inverterId: string,
+    mpptId: string,
+    panels: WiringString['panels'],
+  ) => WiringString;
+  removeWiringString: (inverterId: string, mpptId: string, stringId: string) => void;
   replaceProject: (project: Project) => void;
 }
 
@@ -153,6 +161,17 @@ function nextSelectedIdAfterRemoval<T extends { id: string }>(
 ): string | null {
   if (currentSelectedId !== removedId) return currentSelectedId;
   return items.find((item) => item.id !== removedId)?.id ?? null;
+}
+
+function ensureMPPTWiring(
+  wiring: MPPTWiring[],
+  inverterId: string,
+  mpptId: string,
+): MPPTWiring[] {
+  if (wiring.some((item) => item.inverterId === inverterId && item.mpptId === mpptId)) {
+    return wiring;
+  }
+  return [...wiring, { inverterId, mpptId, strings: [] }];
 }
 
 export const useProjectStore = create<ProjectStoreState>((set) => ({
@@ -386,6 +405,20 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
           ...state.project.pv,
           arrays: state.project.pv.arrays.filter((item) => item.id !== id),
         },
+        electrical: {
+          ...state.project.electrical,
+          wiring: state.project.electrical.wiring
+            .map((mpptWiring) => ({
+              ...mpptWiring,
+              strings: mpptWiring.strings
+                .map((string) => ({
+                  ...string,
+                  panels: string.panels.filter((panel) => panel.arrayId !== id),
+                }))
+                .filter((string) => string.panels.length > 0),
+            }))
+            .filter((mpptWiring) => mpptWiring.strings.length > 0),
+        },
       }),
       selectedPVArrayId:
         nextSelectedIdAfterRemoval(state.selectedPVArrayId, id, state.project.pv.arrays),
@@ -538,6 +571,50 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
         }),
       };
     }),
+  addWiringString: (inverterId, mpptId, panels) => {
+    let created: WiringString | null = null;
+    set((state) => {
+      const inverter = state.project.electrical.inverters.find((item) => item.id === inverterId);
+      const mppt = inverter?.mppts.find((item) => item.id === mpptId);
+      if (!inverter || !mppt || panels.length === 0) return state;
+      created = {
+        id: generateId('string'),
+        panels,
+      };
+      const wiring = ensureMPPTWiring(state.project.electrical.wiring, inverterId, mpptId);
+      return {
+        project: bumpProject({
+          ...state.project,
+          electrical: {
+            ...state.project.electrical,
+            wiring: wiring.map((item) =>
+              item.inverterId === inverterId && item.mpptId === mpptId
+                ? { ...item, strings: [...item.strings, created as WiringString] }
+                : item,
+            ),
+          },
+        }),
+      };
+    });
+    if (!created) throw new Error('Could not create wiring string');
+    return created;
+  },
+  removeWiringString: (inverterId, mpptId, stringId) =>
+    set((state) => ({
+      project: bumpProject({
+        ...state.project,
+        electrical: {
+          ...state.project.electrical,
+          wiring: state.project.electrical.wiring
+            .map((item) =>
+              item.inverterId === inverterId && item.mpptId === mpptId
+                ? { ...item, strings: item.strings.filter((string) => string.id !== stringId) }
+                : item,
+            )
+            .filter((item) => item.strings.length > 0),
+        },
+      }),
+    })),
   replaceProject: (project) =>
     set({
       project,

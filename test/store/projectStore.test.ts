@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { useProjectStore } from '../../src/store/projectStore';
+import { PROJECT_TABS, useProjectStore } from '../../src/store/projectStore';
 import { createProject } from '../../src/model/project';
 
 const validLocation = { lat: 52.37, lon: 4.9, timezone: 'Europe/Amsterdam' };
@@ -23,6 +23,19 @@ describe('projectStore', () => {
   it('switches the active tab', () => {
     useProjectStore.getState().setActiveTab('pv-arrays');
     expect(useProjectStore.getState().activeTab).toBe('pv-arrays');
+  });
+
+  it('orders inverters before wiring in the workflow', () => {
+    expect(PROJECT_TABS.map((tab) => tab.id)).toEqual([
+      'locatie',
+      'objecten',
+      'pv-arrays',
+      'inverters',
+      'bekabeling',
+      'accu-verbruik',
+      'simulatie',
+      'resultaten',
+    ]);
   });
 
   it('updates the project location and bumps updatedAt', async () => {
@@ -112,5 +125,38 @@ describe('projectStore', () => {
       name: 'MPPT 2',
       pMaxW: 4100,
     });
+  });
+
+  it('adds and removes wiring strings for an MPPT', () => {
+    const array = useProjectStore.getState().addPVArray({ rows: 1, columns: 3 });
+    const inverter = useProjectStore.getState().addInverter({ name: 'Inv' });
+    const mppt = inverter.mppts[0];
+    const string = useProjectStore.getState().addWiringString(inverter.id, mppt.id, [
+      { arrayId: array.id, row: 0, column: 0 },
+      { arrayId: array.id, row: 0, column: 1 },
+      { arrayId: array.id, row: 0, column: 2 },
+    ]);
+
+    expect(useProjectStore.getState().project.electrical.wiring[0]).toMatchObject({
+      inverterId: inverter.id,
+      mpptId: mppt.id,
+      strings: [{ id: string.id }],
+    });
+
+    useProjectStore.getState().removeWiringString(inverter.id, mppt.id, string.id);
+    expect(useProjectStore.getState().project.electrical.wiring).toHaveLength(0);
+  });
+
+  it('removes stale wiring references when an array is deleted', () => {
+    const array = useProjectStore.getState().addPVArray({ rows: 1, columns: 2 });
+    const inverter = useProjectStore.getState().addInverter();
+    const mppt = inverter.mppts[0];
+    useProjectStore.getState().addWiringString(inverter.id, mppt.id, [
+      { arrayId: array.id, row: 0, column: 0 },
+      { arrayId: array.id, row: 0, column: 1 },
+    ]);
+
+    useProjectStore.getState().removePVArray(array.id);
+    expect(useProjectStore.getState().project.electrical.wiring).toHaveLength(0);
   });
 });

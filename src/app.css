@@ -318,7 +318,8 @@ body,
 .property-form input,
 .property-form select,
 .property-form textarea,
-.panel-editor select {
+.panel-editor select,
+.string-builder select {
   width: 100%;
   padding: 0.4rem 0.5rem;
   border: 1px solid var(--color-border);
@@ -407,6 +408,59 @@ body,
   border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 0.75rem;
+}
+.string-builder {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+}
+.string-template-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.string-template-grid h4,
+.wiring-warnings h4 {
+  margin: 0 0 0.5rem;
+}
+.template-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.string-count {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+.string-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: start;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+.string-card p {
+  margin: 0.25rem 0;
+  font-size: 0.85rem;
+}
+.string-card small {
+  color: var(--color-muted);
+}
+.wiring-warnings {
+  border: 1px solid #f2b8b5;
+  background: #fff8f7;
+  border-radius: 6px;
+  padding: 0.75rem;
+  color: #8c1d18;
+}
+.wiring-warnings ul {
+  margin: 0;
+  padding-left: 1.2rem;
 }
 .sub-editor legend {
   color: var(--color-muted);
