@@ -30,7 +30,7 @@ function getMPPTWiring(wiring: MPPTWiring[], inverterId: string, mpptId: string)
 }
 
 function panelsForRow(array: PVArray, row: number): WiringString['panels'] {
-  return Array.from({ length: array.columns }, (_item, column) => ({
+  return Array.from({ length: array.columns }, (_, column) => ({
     arrayId: array.id,
     row,
     column,
@@ -38,7 +38,7 @@ function panelsForRow(array: PVArray, row: number): WiringString['panels'] {
 }
 
 function panelsForColumn(array: PVArray, column: number): WiringString['panels'] {
-  return Array.from({ length: array.rows }, (_item, row) => ({
+  return Array.from({ length: array.rows }, (_, row) => ({
     arrayId: array.id,
     row,
     column,
@@ -46,8 +46,8 @@ function panelsForColumn(array: PVArray, column: number): WiringString['panels']
 }
 
 function panelsForSnake(array: PVArray): WiringString['panels'] {
-  return Array.from({ length: array.rows }).flatMap((_item, row) => {
-    const columns = Array.from({ length: array.columns }, (_col, column) => column);
+  return Array.from({ length: array.rows }).flatMap((_, row) => {
+    const columns = Array.from({ length: array.columns }, (_, column) => column);
     const orderedColumns = row % 2 === 0 ? columns : columns.reverse();
     return orderedColumns.map((column) => ({
       arrayId: array.id,
@@ -231,7 +231,7 @@ export function WiringTab() {
                   <section>
                     <h4>Rijen</h4>
                     <div className="template-buttons">
-                      {Array.from({ length: selectedArray.rows }, (_item, row) => (
+                      {Array.from({ length: selectedArray.rows }, (_, row) => (
                         <button key={row} type="button" onClick={() => addString(panelsForRow(selectedArray, row))}>
                           Rij {row + 1}
                         </button>
@@ -241,7 +241,7 @@ export function WiringTab() {
                   <section>
                     <h4>Kolommen</h4>
                     <div className="template-buttons">
-                      {Array.from({ length: selectedArray.columns }, (_item, column) => (
+                      {Array.from({ length: selectedArray.columns }, (_, column) => (
                         <button
                           key={column}
                           type="button"
