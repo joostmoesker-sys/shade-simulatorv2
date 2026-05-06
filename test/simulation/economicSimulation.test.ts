@@ -8,10 +8,16 @@ import {
   simulateProjectEconomics,
   simulateV4Economics,
 } from '../../src/simulation/economicSimulation';
+import { NL_DAY_AHEAD_PRICE_2025_EUR_MWH } from '../../src/simulation/nlDayAheadPrices2025';
 
 const validLocation = { lat: 52.0, lon: 5.0, timezone: 'Europe/Amsterdam' };
 
 describe('phase 4 economic simulation', () => {
+  it('contains one finite raw NL day-ahead price for every UTC hour in 2025', () => {
+    expect(NL_DAY_AHEAD_PRICE_2025_EUR_MWH).toHaveLength(8760);
+    expect(NL_DAY_AHEAD_PRICE_2025_EUR_MWH.every((value) => Number.isFinite(value))).toBe(true);
+  });
+
   it('builds household, heat pump and EV hourly load profiles', () => {
     const project = createProject({ name: 'Demo', location: validLocation });
     project.loads.base.push({ id: 'load', name: 'Basis', annualKwh: 3650, shape: 'flat' });

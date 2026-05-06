@@ -345,6 +345,10 @@ function findCurveMPP(points: IVPoint[]): IVPoint {
   return points.reduce<IVPoint>((best, point) => (point.p > best.p ? point : best), { v: 0, i: 0, p: 0 });
 }
 
+function safeDivide(numerator: number, denominator: number): number {
+  return numerator / Math.max(CURVE_INTERPOLATION_EPSILON, denominator);
+}
+
 function currentAtVoltage(sorted: IVPoint[], voltage: number): number {
   if (voltage <= sorted[0].v) return sorted[0].i;
   if (voltage >= sorted[sorted.length - 1].v) return 0;
@@ -352,7 +356,7 @@ function currentAtVoltage(sorted: IVPoint[], voltage: number): number {
     const left = sorted[index];
     const right = sorted[index + 1];
     if (voltage >= left.v && voltage <= right.v) {
-      const fraction = (voltage - left.v) / Math.max(CURVE_INTERPOLATION_EPSILON, right.v - left.v);
+      const fraction = safeDivide(voltage - left.v, right.v - left.v);
       return left.i + fraction * (right.i - left.i);
     }
   }
@@ -366,7 +370,7 @@ function voltageAtCurrent(sorted: IVPoint[], current: number): number {
     const high = sorted[index];
     const low = sorted[index + 1];
     if (current <= high.i && current >= low.i) {
-      const fraction = (high.i - current) / Math.max(CURVE_INTERPOLATION_EPSILON, high.i - low.i);
+      const fraction = safeDivide(high.i - current, high.i - low.i);
       return high.v + fraction * (low.v - high.v);
     }
   }

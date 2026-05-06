@@ -4,6 +4,8 @@
 // The source contains hourly values until 2025-10-01 and quarter-hourly values
 // afterwards; quarter-hourly values are averaged into the matching UTC hour so
 // tariff timestamps stay aligned with Open-Meteo hourly weather samples.
+// If this raw source is regenerated, keep the output as exactly 8760 UTC-hour
+// EUR/MWh values and update the validation coverage in economicSimulation tests.
 
 export const NL_DAY_AHEAD_PRICE_2025_EUR_MWH = [
   6.24, 4.16, 3.28, 0.68, 0, 0.76, 0.79, 1.89, 7.5, 27.32, 37.49, 60.1, 63.32, 47, 50.1, 27.64, 79.97, 95, 95, 81.49, 68.96, 46.37, 38, 101.94,
