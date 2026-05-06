@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react';
 
-import { OsmMap } from '../map/OsmMap';
 import { geocode, type GeocodeResult, isInsideNetherlands } from '../location/geocode';
 import { useProjectStore } from '../store/projectStore';
 
@@ -35,7 +34,7 @@ export function LocationTab() {
   };
 
   return (
-    <div className="location-tab">
+    <div className="panel-content location-tab">
       <aside className="location-sidebar">
         <h2>Locatie</h2>
         <p className="hint">
@@ -94,19 +93,8 @@ export function LocationTab() {
             Locatie ligt buiten Nederland.
           </p>
         )}
+        <p className="hint">Klik op de gedeelde kaart links om de locatie te verplaatsen.</p>
       </aside>
-      <div className="location-map">
-        <OsmMap
-          value={value}
-          onChange={(point) =>
-            setLocation({
-              lat: point.lat,
-              lon: point.lon,
-              timezone: project.location.timezone,
-            })
-          }
-        />
-      </div>
     </div>
   );
 }

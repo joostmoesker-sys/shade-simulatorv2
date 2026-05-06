@@ -6,9 +6,10 @@ prototype as a generic, location-independent client-side tool.
 
 The full Product Requirements Document lives in [`docs/PRD.md`](docs/PRD.md).
 
-## Phase 1 (current)
+## Phase 2 (current)
 
-Foundation work:
+The phase 1 foundation is complete. Phase 2 continues with the first project
+editor beyond location selection:
 
 - Vite + React + TypeScript application scaffold.
 - Project domain model with Zod schemas (`src/model/schema.ts`) as the single
@@ -19,6 +20,8 @@ Foundation work:
 - Location module with Netherlands bounds checking and a Nominatim geocoder.
 - OpenStreetMap-backed MapLibre map canvas.
 - App shell with the eight PRD workflow tabs and a working `Locatie` tab.
+- `PV Arrays` tab with default panel type creation, editable array properties,
+  and a panel-grid preview for rows, columns, orientation, dimensions and kWp.
 - All functionality is covered by unit/integration tests written using a
   TDD workflow with [Vitest](https://vitest.dev/).
 

@@ -1,7 +1,7 @@
 # PRD: Generieke PV, Schaduw En Accu Simulator
 
-> Status: vastgesteld voor MVP – fase 1 in implementatie (project model, JSON
-> schema, OSM kaartcanvas, locatiezoeker).
+> Status: vastgesteld voor MVP – fase 2 in implementatie (PV-array editor met
+> paneelraster bovenop de fase 1 foundation).
 
 ## 1. Doel
 
@@ -222,7 +222,7 @@ Worker tijdens een run.
 
 1. **Projectmodel en JSON schema** ← *fase 1 (deze PR)*
 2. MapLibre locatiezoeker en projectcanvas ← *fase 1 (deze PR, basis)*
-3. PV‑array editor met panel grid
+3. PV‑array editor met panel grid ← *fase 2*
 4. Simpele objecteditor voor bomen en gebouwen
 5. Zonpositie, weerdata en POA‑irradiance
 6. Schaduwberekening via vereenvoudigde raycasting

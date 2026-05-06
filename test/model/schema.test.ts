@@ -50,6 +50,7 @@ describe('Scene object schemas', () => {
       trunkHeightM: 2,
     });
     expect(tree.density).toBeCloseTo(0.7);
+    expect(tree.undergrowth).toBe('grass');
     expect(tree.deciduous).toBe(true);
   });
 

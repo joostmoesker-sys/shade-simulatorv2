@@ -95,6 +95,8 @@ export const TreeObjectSchema = SceneObjectBase.extend({
   trunkHeightM: NonNegative,
   /** Crown opacity in [0, 1]. 1 = fully opaque. */
   density: FiniteNumber.gte(0).lte(1).default(0.7),
+  /** Undergrowth around/below the tree crown, used by shading model later. */
+  undergrowth: z.enum(['none', 'grass', 'shrubs', 'dense']).default('grass'),
   /** Whether the tree drops its leaves; affects winter density. */
   deciduous: z.boolean().default(true),
 });
