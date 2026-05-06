@@ -74,4 +74,39 @@ describe('projectStore', () => {
     useProjectStore.getState().removePVArray(array.id);
     expect(useProjectStore.getState().project.pv.arrays).toHaveLength(0);
   });
+
+  it('creates and updates scene objects', () => {
+    const tree = useProjectStore.getState().addSceneObject({ kind: 'tree', name: 'Linde' });
+    useProjectStore.getState().updateSceneObject(tree.id, { heightM: 11 });
+    expect(useProjectStore.getState().project.scene.objects[0]).toMatchObject({
+      kind: 'tree',
+      name: 'Linde',
+      heightM: 11,
+    });
+
+    useProjectStore.getState().removeSceneObject(tree.id);
+    expect(useProjectStore.getState().project.scene.objects).toHaveLength(0);
+  });
+
+  it('creates and updates panel types', () => {
+    const panel = useProjectStore.getState().addPanelType({ manufacturer: 'ACME', model: '455' });
+    useProjectStore.getState().updatePanelType(panel.id, { pmaxW: 455 });
+    expect(useProjectStore.getState().project.pv.panelTypes[0]).toMatchObject({
+      manufacturer: 'ACME',
+      model: '455',
+      pmaxW: 455,
+    });
+  });
+
+  it('creates and edits inverters and MPPTs', () => {
+    const inverter = useProjectStore.getState().addInverter({ name: 'Inv' });
+    const mppt = useProjectStore.getState().addMPPT(inverter.id, { name: 'MPPT 2' });
+    useProjectStore.getState().updateMPPT(inverter.id, mppt.id, { pMaxW: 4100 });
+
+    expect(useProjectStore.getState().project.electrical.inverters[0].mppts).toHaveLength(2);
+    expect(useProjectStore.getState().project.electrical.inverters[0].mppts[1]).toMatchObject({
+      name: 'MPPT 2',
+      pMaxW: 4100,
+    });
+  });
 });

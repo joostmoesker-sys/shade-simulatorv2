@@ -1,5 +1,8 @@
 import { LocationTab } from './components/LocationTab';
+import { InvertersTab } from './components/InvertersTab';
+import { ObjectsTab } from './components/ObjectsTab';
 import { PVArraysTab } from './components/PVArraysTab';
+import { ProjectFileActions } from './components/ProjectFileActions';
 import { PROJECT_TABS, useProjectStore } from './store/projectStore';
 
 import './app.css';
@@ -14,6 +17,7 @@ export function App() {
       <header className="app-header">
         <h1>Shade Simulator v2</h1>
         <span className="project-name">{projectName}</span>
+        <ProjectFileActions />
       </header>
       <nav className="app-tabs" aria-label="Projectstappen">
         {PROJECT_TABS.map((tab) => (
@@ -29,13 +33,18 @@ export function App() {
       </nav>
       <main className="app-main">
         {activeTab === 'locatie' && <LocationTab />}
+        {activeTab === 'objecten' && <ObjectsTab />}
         {activeTab === 'pv-arrays' && <PVArraysTab />}
-        {activeTab !== 'locatie' && activeTab !== 'pv-arrays' && (
+        {activeTab === 'inverters' && <InvertersTab />}
+        {activeTab !== 'locatie' &&
+          activeTab !== 'objecten' &&
+          activeTab !== 'pv-arrays' &&
+          activeTab !== 'inverters' && (
           <div className="placeholder">
             <h2>{PROJECT_TABS.find((t) => t.id === activeTab)?.label}</h2>
             <p>Deze stap wordt geïmplementeerd in een latere fase.</p>
           </div>
-        )}
+          )}
       </main>
     </div>
   );

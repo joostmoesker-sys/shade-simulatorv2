@@ -78,4 +78,18 @@ describe('<PVArraysTab>', () => {
     // First array is auto-selected.
     expect(mapEl.dataset.selectedId).toBe(a1.id);
   });
+
+  it('adds a panel type from the database and supports manual editing', () => {
+    render(<PVArraysTab />);
+
+    fireEvent.change(screen.getByLabelText('Preset toevoegen'), { target: { value: '1' } });
+    expect(useProjectStore.getState().project.pv.panelTypes.some((pt) => pt.pmaxW === 430)).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Handmatig paneel toevoegen' }));
+    const manual = useProjectStore.getState().project.pv.panelTypes.at(-1);
+    expect(manual?.manufacturer).toBe('Handmatig');
+
+    fireEvent.change(screen.getByLabelText('Pmax (Wp)'), { target: { value: '455' } });
+    expect(useProjectStore.getState().project.pv.panelTypes.at(-1)?.pmaxW).toBe(455);
+  });
 });
