@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { PROJECT_TABS, useProjectStore } from '../../src/store/projectStore';
+import {
+  createDefaultSimulationPreviewTimestamp,
+  PROJECT_TABS,
+  useProjectStore,
+} from '../../src/store/projectStore';
 import { createProject } from '../../src/model/project';
 
 const validLocation = { lat: 52.37, lon: 4.9, timezone: 'Europe/Amsterdam' };
@@ -30,6 +34,12 @@ describe('projectStore', () => {
     useProjectStore.getState().setSimulationPreviewTimestamp('2026-03-21T09:30:00.000Z');
 
     expect(useProjectStore.getState().simulationPreviewTimestamp).toBe('2026-03-21T09:30:00.000Z');
+  });
+
+  it('creates a configurable current default simulation preview timestamp', () => {
+    expect(createDefaultSimulationPreviewTimestamp(new Date('2025-05-06T14:00:00.000Z'))).toBe(
+      '2025-05-06T14:00:00.000Z',
+    );
   });
 
   it('orders inverters before wiring in the workflow', () => {

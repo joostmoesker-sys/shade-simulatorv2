@@ -50,6 +50,10 @@ export const PROJECT_TABS: { id: ProjectTab; label: string }[] = [
 
 export const DEFAULT_PANEL_TYPE_ID = 'panel_default_400w';
 
+export function createDefaultSimulationPreviewTimestamp(now = new Date()): string {
+  return now.toISOString();
+}
+
 const DEFAULT_PANEL_TYPE: PanelType = PanelTypeSchema.parse({
   id: DEFAULT_PANEL_TYPE_ID,
   manufacturer: 'Generiek',
@@ -183,7 +187,7 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
   selectedSceneObjectId: null,
   selectedPVArrayId: null,
   objectMapAddKind: null,
-  simulationPreviewTimestamp: new Date().toISOString(),
+  simulationPreviewTimestamp: createDefaultSimulationPreviewTimestamp(),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSelectedSceneObjectId: (id) => set({ selectedSceneObjectId: id }),
   setSelectedPVArrayId: (id) => set({ selectedPVArrayId: id }),
