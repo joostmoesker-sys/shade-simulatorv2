@@ -123,7 +123,7 @@ export function WiringTab() {
     () => findSelectedMPPT(project.electrical.inverters, selectedKey),
     [project.electrical.inverters, selectedKey],
   );
-  const selectedArray = project.pv.arrays.find((array) => array.id === selectedArrayId) ?? project.pv.arrays[0] ?? null;
+  const selectedArray = project.pv.arrays.find((array) => array.id === selectedArrayId) ?? project.pv.arrays[0];
   const selectedWiring = selected
     ? getMPPTWiring(project.electrical.wiring, selected.inverter.id, selected.mppt.id)
     : null;
@@ -214,11 +214,11 @@ export function WiringTab() {
               </div>
             </dl>
 
-            {project.pv.arrays.length > 0 ? (
+            {project.pv.arrays.length > 0 && selectedArray ? (
               <section className="string-builder" aria-label="String toevoegen">
                 <label>
                   PV array
-                  <select value={selectedArray?.id ?? ''} onChange={(e) => setSelectedArrayId(e.target.value)}>
+                  <select value={selectedArray.id} onChange={(e) => setSelectedArrayId(e.target.value)}>
                     {project.pv.arrays.map((array) => (
                       <option key={array.id} value={array.id}>
                         {array.name} ({array.rows}×{array.columns})
@@ -227,39 +227,35 @@ export function WiringTab() {
                   </select>
                 </label>
 
-                {selectedArray && (
-                  <>
-                    <div className="string-template-grid">
-                      <section>
-                        <h4>Rijen</h4>
-                        <div className="template-buttons">
-                          {Array.from({ length: selectedArray.rows }, (_item, row) => (
-                            <button key={row} type="button" onClick={() => addString(panelsForRow(selectedArray, row))}>
-                              Rij {row + 1}
-                            </button>
-                          ))}
-                        </div>
-                      </section>
-                      <section>
-                        <h4>Kolommen</h4>
-                        <div className="template-buttons">
-                          {Array.from({ length: selectedArray.columns }, (_item, column) => (
-                            <button
-                              key={column}
-                              type="button"
-                              onClick={() => addString(panelsForColumn(selectedArray, column))}
-                            >
-                              Kolom {column + 1}
-                            </button>
-                          ))}
-                        </div>
-                      </section>
+                <div className="string-template-grid">
+                  <section>
+                    <h4>Rijen</h4>
+                    <div className="template-buttons">
+                      {Array.from({ length: selectedArray.rows }, (_item, row) => (
+                        <button key={row} type="button" onClick={() => addString(panelsForRow(selectedArray, row))}>
+                          Rij {row + 1}
+                        </button>
+                      ))}
                     </div>
-                    <button type="button" onClick={() => addString(panelsForSnake(selectedArray))}>
-                      Hele array als snake-string toevoegen
-                    </button>
-                  </>
-                )}
+                  </section>
+                  <section>
+                    <h4>Kolommen</h4>
+                    <div className="template-buttons">
+                      {Array.from({ length: selectedArray.columns }, (_item, column) => (
+                        <button
+                          key={column}
+                          type="button"
+                          onClick={() => addString(panelsForColumn(selectedArray, column))}
+                        >
+                          Kolom {column + 1}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+                <button type="button" onClick={() => addString(panelsForSnake(selectedArray))}>
+                  Hele array als snake-string toevoegen
+                </button>
               </section>
             ) : (
               <p className="empty-state">Voeg eerst één of meer PV arrays toe.</p>
