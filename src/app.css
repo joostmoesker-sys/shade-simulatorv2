@@ -234,56 +234,75 @@ body,
   border-color: #b3261e;
   background: #b3261e;
 }
-.array-preview {
+.array-stats {
   display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 1rem;
-  min-height: 0;
-  padding: 1rem;
-  overflow: auto;
-}
-.array-summary {
-  background: var(--color-surface);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem 0.75rem;
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.85rem;
+  background: var(--color-bg);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: 1rem;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
 }
-.array-summary h3 {
-  margin: 0 0 0.75rem;
-}
-.array-summary dl {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
-  margin: 0;
-}
-.array-summary dt {
+.array-stats dt {
   color: var(--color-muted);
-  font-size: 0.8rem;
+  font-size: 0.75rem;
 }
-.array-summary dd {
-  margin: 0.15rem 0 0;
+.array-stats dd {
+  margin: 0.1rem 0 0;
   font-weight: 600;
 }
-.panel-grid {
-  display: grid;
-  gap: 0.4rem;
-  align-content: start;
-  background: #d9e7f5;
-  border: 1px solid #b8d1eb;
-  border-radius: 8px;
-  padding: 1rem;
+
+.pv-array-map-container {
+  position: relative;
+  min-height: 0;
 }
-.panel-cell {
+
+/* Move handle – a crosshair circle */
+.move-handle {
+  width: 28px;
+  height: 28px;
+  background: white;
+  border: 2px solid var(--color-accent);
+  border-radius: 50%;
   display: grid;
   place-items: center;
-  min-height: 4rem;
-  border: 1px solid #2f6da9;
-  border-radius: 4px;
-  background: linear-gradient(135deg, #173f67, #1f5fa6);
+  cursor: move;
+  font-size: 15px;
+  line-height: 1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  user-select: none;
+}
+.move-handle::before {
+  content: '✛';
+  color: var(--color-accent);
+}
+
+/* Rotate handle – an orange circle with ↻ icon */
+.rotate-handle {
+  width: 28px;
+  height: 28px;
+  background: #ff8c00;
+  border: 2px solid white;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  font-size: 16px;
+  line-height: 1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  user-select: none;
+}
+.rotate-handle::before {
+  content: '↻';
   color: white;
-  font-size: 0.8rem;
-  font-weight: 600;
+}
+
+/* Azimuth arrow marker – outer div receives MapLibre's position transform;
+   the inner div (first child) receives the CSS rotation. */
+.azimuth-arrow-marker {
+  pointer-events: none;
 }
 
 .placeholder {

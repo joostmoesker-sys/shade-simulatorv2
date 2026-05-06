@@ -72,6 +72,9 @@ export type AddPVArrayInput = Partial<
   >
 >;
 
+/** Default height above ground (m) for a newly created PV array. */
+export const DEFAULT_ARRAY_BASE_HEIGHT_M = 3;
+
 interface ProjectStoreState {
   project: Project;
   activeTab: ProjectTab;
@@ -144,7 +147,7 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
         orientation: input.orientation ?? 'portrait',
         azimuthDeg: input.azimuthDeg ?? 180,
         tiltDeg: input.tiltDeg ?? 35,
-        baseHeightM: input.baseHeightM ?? 3,
+        baseHeightM: input.baseHeightM ?? DEFAULT_ARRAY_BASE_HEIGHT_M,
         panelGapM: input.panelGapM ?? 0.02,
         rowGapM: input.rowGapM ?? 0.3,
       });

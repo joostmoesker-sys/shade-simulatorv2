@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { PVArrayMap } from '../map/PVArrayMap';
+import { getArrayDimensions } from '../map/pvArrayGeometry';
 import { useProjectStore } from '../store/projectStore';
-import type { PVArray } from '../model/schema';
+import type { LatLon, PVArray } from '../model/schema';
 
 type NumberField = Extract<
   keyof PVArray,
@@ -35,18 +37,18 @@ export function PVArraysTab() {
 
   const panelCount = selectedArray ? selectedArray.rows * selectedArray.columns : 0;
   const arrayWp = selectedPanelType ? panelCount * selectedPanelType.pmaxW : 0;
-  const dimensions = useMemo(() => {
-    if (!selectedArray || !selectedPanelType) return null;
-    const panelWidth =
-      selectedArray.orientation === 'portrait' ? selectedPanelType.widthM : selectedPanelType.heightM;
-    const panelHeight =
-      selectedArray.orientation === 'portrait' ? selectedPanelType.heightM : selectedPanelType.widthM;
-    return {
-      widthM:
-        selectedArray.columns * panelWidth + Math.max(0, selectedArray.columns - 1) * selectedArray.panelGapM,
-      depthM: selectedArray.rows * panelHeight + Math.max(0, selectedArray.rows - 1) * selectedArray.rowGapM,
-    };
-  }, [selectedArray, selectedPanelType]);
+  const dimensions = useMemo(
+    () =>
+      selectedArray && selectedPanelType
+        ? getArrayDimensions(selectedArray, selectedPanelType)
+        : null,
+    [selectedArray, selectedPanelType],
+  );
+
+  const mapCenter: LatLon = {
+    lat: project.location.lat,
+    lon: project.location.lon,
+  };
 
   const handleAddArray = () => {
     const created = addPVArray();
@@ -68,7 +70,9 @@ export function PVArraysTab() {
         <header className="editor-header">
           <div>
             <h2>PV Arrays</h2>
-            <p className="hint">Plaats rechthoekige paneelvelden en controleer raster, richting en vermogen.</p>
+            <p className="hint">
+              Voeg arrays toe en sleep ze op de kaart om ze te plaatsen en te draaien.
+            </p>
           </div>
           <button type="button" onClick={handleAddArray}>
             Array toevoegen
@@ -93,159 +97,145 @@ export function PVArraysTab() {
             ))}
           </ul>
         ) : (
-          <p className="empty-state">Nog geen PV arrays. Voeg een array toe om fase 2 te starten.</p>
+          <p className="empty-state">
+            Nog geen PV arrays. Voeg een array toe om op de kaart te plaatsen.
+          </p>
         )}
 
-        {selectedArray && (
-          <form className="property-form" aria-label="PV array eigenschappen">
-            <label>
-              Naam
-              <input
-                value={selectedArray.name}
-                onChange={(e) => updatePVArray(selectedArray.id, { name: e.target.value })}
-              />
-            </label>
-            <div className="field-grid">
+        {selectedArray && selectedPanelType && dimensions && (
+          <>
+            <dl className="array-stats">
+              <div>
+                <dt>Panelen</dt>
+                <dd>{panelCount}</dd>
+              </div>
+              <div>
+                <dt>DC vermogen</dt>
+                <dd>{(arrayWp / 1000).toFixed(1)} kWp</dd>
+              </div>
+              <div>
+                <dt>Afmeting</dt>
+                <dd>
+                  {dimensions.widthM.toFixed(1)} × {dimensions.depthM.toFixed(1)} m
+                </dd>
+              </div>
+            </dl>
+
+            <form className="property-form" aria-label="PV array eigenschappen">
               <label>
-                Rijen
+                Naam
                 <input
-                  type="number"
-                  min={1}
-                  value={selectedArray.rows}
-                  onChange={(e) => updateNumber('rows', e.target.value)}
+                  value={selectedArray.name}
+                  onChange={(e) => updatePVArray(selectedArray.id, { name: e.target.value })}
                 />
               </label>
-              <label>
-                Kolommen
-                <input
-                  type="number"
-                  min={1}
-                  value={selectedArray.columns}
-                  onChange={(e) => updateNumber('columns', e.target.value)}
-                />
-              </label>
-              <label>
-                Oriëntatie
-                <select
-                  value={selectedArray.orientation}
-                  onChange={(e) =>
-                    updatePVArray(selectedArray.id, {
-                      orientation: e.target.value as PVArray['orientation'],
-                    })
-                  }
-                >
-                  <option value="portrait">Portrait</option>
-                  <option value="landscape">Landscape</option>
-                </select>
-              </label>
-              <label>
-                Azimuth (°)
-                <input
-                  type="number"
-                  min={0}
-                  max={359}
-                  value={selectedArray.azimuthDeg}
-                  onChange={(e) => updateNumber('azimuthDeg', e.target.value)}
-                />
-              </label>
-              <label>
-                Tilt (°)
-                <input
-                  type="number"
-                  min={0}
-                  max={90}
-                  value={selectedArray.tiltDeg}
-                  onChange={(e) => updateNumber('tiltDeg', e.target.value)}
-                />
-              </label>
-              <label>
-                Basishoogte (m)
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={selectedArray.baseHeightM}
-                  onChange={(e) => updateNumber('baseHeightM', e.target.value)}
-                />
-              </label>
-              <label>
-                Paneelafstand (m)
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={selectedArray.panelGapM}
-                  onChange={(e) => updateNumber('panelGapM', e.target.value)}
-                />
-              </label>
-              <label>
-                Rijafstand (m)
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={selectedArray.rowGapM}
-                  onChange={(e) => updateNumber('rowGapM', e.target.value)}
-                />
-              </label>
-            </div>
-            <button type="button" className="danger-button" onClick={() => removePVArray(selectedArray.id)}>
-              Array verwijderen
-            </button>
-          </form>
+              <div className="field-grid">
+                <label>
+                  Rijen
+                  <input
+                    type="number"
+                    min={1}
+                    value={selectedArray.rows}
+                    onChange={(e) => updateNumber('rows', e.target.value)}
+                  />
+                </label>
+                <label>
+                  Kolommen
+                  <input
+                    type="number"
+                    min={1}
+                    value={selectedArray.columns}
+                    onChange={(e) => updateNumber('columns', e.target.value)}
+                  />
+                </label>
+                <label>
+                  Oriëntatie
+                  <select
+                    value={selectedArray.orientation}
+                    onChange={(e) =>
+                      updatePVArray(selectedArray.id, {
+                        orientation: e.target.value as PVArray['orientation'],
+                      })
+                    }
+                  >
+                    <option value="portrait">Portrait</option>
+                    <option value="landscape">Landscape</option>
+                  </select>
+                </label>
+                <label>
+                  Azimuth (°)
+                  <input
+                    type="number"
+                    min={0}
+                    max={359}
+                    value={selectedArray.azimuthDeg}
+                    onChange={(e) => updateNumber('azimuthDeg', e.target.value)}
+                  />
+                </label>
+                <label>
+                  Tilt (°)
+                  <input
+                    type="number"
+                    min={0}
+                    max={90}
+                    value={selectedArray.tiltDeg}
+                    onChange={(e) => updateNumber('tiltDeg', e.target.value)}
+                  />
+                </label>
+                <label>
+                  Basishoogte (m)
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={selectedArray.baseHeightM}
+                    onChange={(e) => updateNumber('baseHeightM', e.target.value)}
+                  />
+                </label>
+                <label>
+                  Paneelafstand (m)
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={selectedArray.panelGapM}
+                    onChange={(e) => updateNumber('panelGapM', e.target.value)}
+                  />
+                </label>
+                <label>
+                  Rijafstand (m)
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={selectedArray.rowGapM}
+                    onChange={(e) => updateNumber('rowGapM', e.target.value)}
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() => removePVArray(selectedArray.id)}
+              >
+                Array verwijderen
+              </button>
+            </form>
+          </>
         )}
       </aside>
 
-      <section className="array-preview" aria-label="PV array preview">
-        {selectedArray && selectedPanelType && dimensions ? (
-          <>
-            <div className="array-summary">
-              <h3>{selectedArray.name}</h3>
-              <dl>
-                <div>
-                  <dt>Panelen</dt>
-                  <dd>{panelCount}</dd>
-                </div>
-                <div>
-                  <dt>DC vermogen</dt>
-                  <dd>{(arrayWp / 1000).toFixed(1)} kWp</dd>
-                </div>
-                <div>
-                  <dt>Afmeting</dt>
-                  <dd>
-                    {dimensions.widthM.toFixed(1)} × {dimensions.depthM.toFixed(1)} m
-                  </dd>
-                </div>
-                <div>
-                  <dt>Paneeltype</dt>
-                  <dd>
-                    {selectedPanelType.manufacturer} {selectedPanelType.model}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-            <div
-              className="panel-grid"
-              style={{ gridTemplateColumns: `repeat(${selectedArray.columns}, minmax(2.5rem, 1fr))` }}
-            >
-              {Array.from({ length: panelCount }, (_, index) => {
-                const row = Math.floor(index / selectedArray.columns);
-                const column = index % selectedArray.columns;
-                return (
-                  <div key={`${row}-${column}`} className="panel-cell" aria-label={`Paneel ${row + 1}-${column + 1}`}>
-                    {index + 1}
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        ) : (
-          <div className="placeholder">
-            <h2>PV array editor</h2>
-            <p>Voeg een array toe om het paneelraster te bekijken.</p>
-          </div>
-        )}
-      </section>
+      <div className="pv-array-map-container">
+        <PVArrayMap
+          arrays={project.pv.arrays}
+          panelTypes={project.pv.panelTypes}
+          selectedId={selectedId}
+          center={mapCenter}
+          onSelect={setSelectedId}
+          onMove={(id, position) => updatePVArray(id, { position })}
+          onRotate={(id, azimuthDeg) => updatePVArray(id, { azimuthDeg })}
+        />
+      </div>
     </div>
   );
 }
