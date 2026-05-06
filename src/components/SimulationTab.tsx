@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { runAnnualSimulation, type AnnualSimulationResult } from '../simulation/annualSimulation';
 import { calculatePlaneOfArrayIrradiance } from '../simulation/irradiance';
+import { buildPanelIVCurve, type IVCurveResult } from '../simulation/pvPerformance';
 import { estimateArrayShadeFactors, buildShadowFeatureCollection } from '../simulation/shading';
 import { calculateSolarPosition } from '../simulation/solarPosition';
 import { normalizeWeather } from '../simulation/weather';
@@ -82,6 +83,149 @@ function MonthlyCashflowChart({ values }: { values: number[] }) {
   );
 }
 
+interface IVPVChartProps {
+  curve: IVCurveResult;
+  arrayName: string;
+}
+
+function IVPVChart({ curve, arrayName }: IVPVChartProps) {
+  if (curve.unshaded.length === 0) return null;
+
+  const W = 320;
+  const H = 180;
+  const PAD = { top: 14, right: 14, bottom: 32, left: 44 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const maxV = curve.vocV;
+  const maxI = curve.iscA * 1.05;
+  const maxP = Math.max(...curve.unshaded.map((pt) => pt.p)) * 1.1;
+
+  const px = (v: number) => PAD.left + (v / maxV) * chartW;
+  const pyCurrent = (i: number) => PAD.top + chartH - (i / maxI) * chartH;
+  const pyPower = (p: number) => PAD.top + chartH - (p / maxP) * chartH;
+
+  const toPolyline = (pts: IVPVChartProps['curve']['unshaded'], yFn: (n: number) => number, xKey: 'v', yKey: 'i' | 'p') =>
+    pts.map((pt) => `${px(pt[xKey]).toFixed(1)},${yFn(pt[yKey]).toFixed(1)}`).join(' ');
+
+  const vmppPx = px(curve.vmppV);
+  const ticksV = [0, 0.25, 0.5, 0.75, 1].map((f) => ({ x: px(f * maxV), label: (f * maxV).toFixed(0) }));
+  const ticksI = [0, 0.5, 1].map((f) => ({
+    y: pyCurrent(f * curve.iscA),
+    label: (f * curve.iscA).toFixed(1),
+  }));
+
+  const hasShadedCurve = curve.iscShadedA < curve.iscA * 0.999 && curve.shaded.length > 0;
+
+  return (
+    <figure className="iv-pv-chart" aria-label={`I–V / P–V curve ${arrayName}`}>
+      <figcaption className="iv-pv-chart__caption">
+        {arrayName} — I–V &amp; P–V curves (
+        {hasShadedCurve ? (
+          <>
+            <span className="iv-pv-chart__legend-shade">▬</span> onbeschaduwd &nbsp;
+            <span className="iv-pv-chart__legend-unshade">▬</span> beschaduwd
+          </>
+        ) : (
+          <span className="iv-pv-chart__legend-shade">▬</span>
+        )}
+        ){' '}
+        <small>
+          Voc {curve.vocV.toFixed(0)} V · Isc {curve.iscA.toFixed(1)} A · Vmpp {curve.vmppV.toFixed(0)} V
+        </small>
+      </figcaption>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="iv-pv-chart__svg"
+        role="img"
+        aria-label={`I–V en P–V curve voor ${arrayName}`}
+      >
+        {/* Grid lines */}
+        {ticksV.map((t) => (
+          <line key={t.label} x1={t.x} y1={PAD.top} x2={t.x} y2={PAD.top + chartH} className="iv-pv-chart__grid" />
+        ))}
+        {ticksI.map((t) => (
+          <line key={t.label} x1={PAD.left} y1={t.y} x2={PAD.left + chartW} y2={t.y} className="iv-pv-chart__grid" />
+        ))}
+
+        {/* Vmpp dashed guide */}
+        <line x1={vmppPx} y1={PAD.top} x2={vmppPx} y2={PAD.top + chartH} className="iv-pv-chart__vmpp" />
+
+        {/* P–V curves (behind I–V) */}
+        {hasShadedCurve && (
+          <polyline
+            points={toPolyline(curve.shaded, pyPower, 'v', 'p')}
+            className="iv-pv-chart__pv iv-pv-chart__pv--shaded"
+          />
+        )}
+        <polyline
+          points={toPolyline(curve.unshaded, pyPower, 'v', 'p')}
+          className="iv-pv-chart__pv iv-pv-chart__pv--unshaded"
+        />
+
+        {/* I–V curves */}
+        {hasShadedCurve && (
+          <polyline
+            points={toPolyline(curve.shaded, pyCurrent, 'v', 'i')}
+            className="iv-pv-chart__iv iv-pv-chart__iv--shaded"
+          />
+        )}
+        <polyline
+          points={toPolyline(curve.unshaded, pyCurrent, 'v', 'i')}
+          className="iv-pv-chart__iv iv-pv-chart__iv--unshaded"
+        />
+
+        {/* Axes */}
+        <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + chartH} className="iv-pv-chart__axis" />
+        <line
+          x1={PAD.left}
+          y1={PAD.top + chartH}
+          x2={PAD.left + chartW}
+          y2={PAD.top + chartH}
+          className="iv-pv-chart__axis"
+        />
+
+        {/* V-axis ticks + labels */}
+        {ticksV.map((t) => (
+          <g key={t.label}>
+            <line x1={t.x} y1={PAD.top + chartH} x2={t.x} y2={PAD.top + chartH + 4} className="iv-pv-chart__tick" />
+            <text x={t.x} y={PAD.top + chartH + 13} className="iv-pv-chart__label" textAnchor="middle">
+              {t.label}
+            </text>
+          </g>
+        ))}
+        <text
+          x={PAD.left + chartW / 2}
+          y={H - 2}
+          className="iv-pv-chart__axis-label"
+          textAnchor="middle"
+        >
+          V (volt)
+        </text>
+
+        {/* I-axis ticks + labels */}
+        {ticksI.map((t) => (
+          <g key={t.label}>
+            <line x1={PAD.left - 4} y1={t.y} x2={PAD.left} y2={t.y} className="iv-pv-chart__tick" />
+            <text x={PAD.left - 7} y={t.y + 4} className="iv-pv-chart__label" textAnchor="end">
+              {t.label}
+            </text>
+          </g>
+        ))}
+        <text
+          x={10}
+          y={PAD.top + chartH / 2}
+          className="iv-pv-chart__axis-label"
+          textAnchor="middle"
+          transform={`rotate(-90, 10, ${PAD.top + chartH / 2})`}
+        >
+          I (A)
+        </text>
+      </svg>
+    </figure>
+  );
+}
+
 export function SimulationTab() {
   const project = useProjectStore((s) => s.project);
   const timestamp = useProjectStore((s) => s.simulationPreviewTimestamp);
@@ -100,11 +244,16 @@ export function SimulationTab() {
   const arrayResults = project.pv.arrays.map((array) => {
     const irradiance = calculatePlaneOfArrayIrradiance(weather, solar, array);
     const shadeFactor = shadeResults.find((item) => item.arrayId === array.id)?.shadeFactor ?? 0;
+    const panelType = project.pv.panelTypes.find((pt) => pt.id === array.panelTypeId);
+    const ivCurve = panelType
+      ? buildPanelIVCurve(panelType, irradiance, shadeFactor, weather.temperatureC, weather.windSpeedMs)
+      : null;
     return {
       array,
       irradiance,
       shadeFactor,
       effectiveWm2: irradiance.totalWm2 * (1 - shadeFactor),
+      ivCurve,
     };
   });
 
@@ -208,6 +357,23 @@ export function SimulationTab() {
           </ul>
         ) : (
           <p className="empty-state">Voeg PV arrays toe om POA-instraling en schaduwfactoren te zien.</p>
+        )}
+
+        <h3>I–V &amp; P–V curves</h3>
+        {arrayResults.some((r) => r.ivCurve && r.ivCurve.unshaded.length > 0) ? (
+          <div className="iv-pv-chart-grid">
+            {arrayResults.map((result) =>
+              result.ivCurve && result.ivCurve.unshaded.length > 0 ? (
+                <IVPVChart key={result.array.id} curve={result.ivCurve} arrayName={result.array.name} />
+              ) : null,
+            )}
+          </div>
+        ) : (
+          <p className="empty-state">
+            {solar.elevationDeg <= 0
+              ? 'Zon staat onder de horizon – geen instraling.'
+              : 'Voeg PV arrays met paneeltype toe om de curves te tonen.'}
+          </p>
         )}
       </section>
 

@@ -7,20 +7,65 @@ const EPSILON_KWH = 1e-7;
 const TARGET_SOC_FRACTION = 0.5;
 const DEFAULT_GRID_EXPORT_KW = 17;
 
-const HOURLY_APX_PRICE_2025 = [
-  [0.09, 0.08, 0.072, 0.068, 0.066, 0.068, 0.08, 0.105, 0.125, 0.12, 0.112, 0.108, 0.105, 0.1, 0.098, 0.102, 0.118, 0.15, 0.18, 0.172, 0.152, 0.132, 0.112, 0.098],
-  [0.086, 0.076, 0.07, 0.065, 0.063, 0.065, 0.076, 0.1, 0.118, 0.112, 0.102, 0.097, 0.094, 0.088, 0.086, 0.09, 0.108, 0.138, 0.168, 0.16, 0.142, 0.122, 0.104, 0.092],
-  [0.078, 0.068, 0.062, 0.058, 0.056, 0.058, 0.068, 0.09, 0.105, 0.098, 0.084, 0.072, 0.068, 0.063, 0.062, 0.068, 0.085, 0.118, 0.145, 0.138, 0.12, 0.102, 0.086, 0.08],
-  [0.068, 0.058, 0.052, 0.048, 0.046, 0.048, 0.056, 0.075, 0.088, 0.078, 0.058, 0.04, 0.035, 0.03, 0.03, 0.038, 0.062, 0.098, 0.13, 0.122, 0.105, 0.088, 0.072, 0.068],
-  [0.062, 0.052, 0.046, 0.042, 0.04, 0.042, 0.048, 0.062, 0.072, 0.06, 0.038, 0.02, 0.015, 0.012, 0.014, 0.025, 0.05, 0.085, 0.118, 0.11, 0.092, 0.075, 0.062, 0.062],
-  [0.055, 0.045, 0.04, 0.037, 0.037, 0.038, 0.044, 0.056, 0.065, 0.05, 0.025, 0.005, 0, 0, 0.005, 0.015, 0.042, 0.078, 0.108, 0.1, 0.085, 0.07, 0.058, 0.055],
-  [0.058, 0.048, 0.042, 0.039, 0.038, 0.04, 0.046, 0.058, 0.068, 0.054, 0.028, 0.008, 0.002, 0, 0.005, 0.018, 0.045, 0.08, 0.11, 0.102, 0.086, 0.072, 0.06, 0.058],
-  [0.062, 0.052, 0.046, 0.043, 0.042, 0.044, 0.05, 0.063, 0.074, 0.06, 0.036, 0.018, 0.012, 0.01, 0.015, 0.028, 0.052, 0.086, 0.116, 0.108, 0.09, 0.075, 0.064, 0.062],
-  [0.07, 0.06, 0.054, 0.05, 0.049, 0.05, 0.06, 0.078, 0.09, 0.08, 0.065, 0.052, 0.048, 0.044, 0.044, 0.05, 0.068, 0.1, 0.13, 0.122, 0.105, 0.088, 0.074, 0.07],
-  [0.08, 0.07, 0.063, 0.059, 0.058, 0.06, 0.072, 0.095, 0.112, 0.108, 0.098, 0.09, 0.086, 0.082, 0.082, 0.088, 0.105, 0.138, 0.165, 0.155, 0.135, 0.115, 0.096, 0.082],
-  [0.088, 0.078, 0.071, 0.067, 0.065, 0.068, 0.08, 0.104, 0.124, 0.118, 0.108, 0.102, 0.098, 0.094, 0.094, 0.1, 0.118, 0.15, 0.178, 0.17, 0.148, 0.128, 0.108, 0.09],
-  [0.098, 0.088, 0.08, 0.075, 0.074, 0.076, 0.09, 0.115, 0.138, 0.132, 0.122, 0.116, 0.112, 0.108, 0.108, 0.114, 0.132, 0.168, 0.198, 0.19, 0.165, 0.142, 0.12, 0.1],
+// 2025 NL EPEX Spot / ENTSO-E day-ahead actual monthly average prices (EUR/MWh).
+// Source: ENTSO-E Transparency Platform, Netherlands bidding zone (BZN|NL), 2025.
+const NL_MONTHLY_AVG_EUR_MWH_2025 = [
+  105.26, // Jan – cold winter, high gas demand
+  121.56, // Feb – peak winter prices
+   88.61, // Mar
+   74.46, // Apr
+   61.36, // May
+   67.84, // Jun
+   83.21, // Jul
+   73.26, // Aug
+   73.82, // Sep
+   39.91, // Oct
+    7.41, // Nov – unusually low (mild weather + renewables surplus)
+   64.19, // Dec
 ] as const;
+
+// Intra-day shape profiles (dimensionless) per calendar month (0=Jan … 11=Dec).
+// Calibrated from observed 2025 NL EPEX Spot daily price patterns:
+//   - Winter: pronounced double peak (morning 7–8h, evening 18–20h).
+//   - Summer: near-zero midday (10–14h) due to solar PV overproduction.
+//   - November: near-flat at very low absolute level.
+// Weekend prices are typically ~10% lower; applied in generateEconomicTariffs().
+const NL_INTRADAY_SHAPE_2025 = [
+  // Jan – winter double peak
+  [0.62, 0.56, 0.52, 0.50, 0.52, 0.68, 1.03, 1.39, 1.36, 1.16, 1.03, 0.96, 0.93, 0.91, 0.93, 1.06, 1.27, 1.54, 1.60, 1.47, 1.30, 1.10, 0.89, 0.73],
+  // Feb – peak winter
+  [0.60, 0.54, 0.51, 0.49, 0.51, 0.66, 1.01, 1.41, 1.39, 1.19, 1.06, 0.98, 0.95, 0.93, 0.95, 1.08, 1.30, 1.58, 1.64, 1.51, 1.33, 1.13, 0.92, 0.75],
+  // Mar – transitional
+  [0.64, 0.58, 0.54, 0.52, 0.55, 0.72, 0.95, 1.22, 1.16, 0.98, 0.82, 0.74, 0.70, 0.68, 0.74, 0.94, 1.20, 1.45, 1.54, 1.44, 1.26, 1.06, 0.88, 0.72],
+  // Apr – spring, solar midday dip developing
+  [0.66, 0.59, 0.55, 0.53, 0.56, 0.74, 0.96, 1.18, 1.08, 0.88, 0.70, 0.60, 0.56, 0.54, 0.60, 0.82, 1.12, 1.42, 1.52, 1.42, 1.22, 1.02, 0.86, 0.72],
+  // May – solar strongly drives midday prices near zero
+  [0.68, 0.60, 0.56, 0.54, 0.57, 0.76, 0.98, 1.12, 0.96, 0.74, 0.54, 0.44, 0.40, 0.40, 0.50, 0.76, 1.08, 1.44, 1.56, 1.46, 1.26, 1.06, 0.88, 0.74],
+  // Jun – summer, near-zero midday prices (solar surplus)
+  [0.74, 0.66, 0.62, 0.60, 0.64, 0.82, 0.96, 0.90, 0.70, 0.44, 0.22, 0.10, 0.06, 0.06, 0.16, 0.50, 0.98, 1.50, 1.72, 1.62, 1.46, 1.24, 1.04, 0.90],
+  // Jul – peak summer, strong evening peak
+  [0.72, 0.64, 0.60, 0.58, 0.62, 0.80, 0.94, 0.88, 0.68, 0.42, 0.20, 0.08, 0.04, 0.04, 0.14, 0.48, 0.96, 1.52, 1.74, 1.64, 1.48, 1.26, 1.06, 0.92],
+  // Aug – late summer
+  [0.73, 0.65, 0.61, 0.59, 0.63, 0.81, 0.95, 0.90, 0.72, 0.48, 0.26, 0.12, 0.07, 0.07, 0.17, 0.52, 1.00, 1.52, 1.73, 1.63, 1.46, 1.24, 1.04, 0.90],
+  // Sep – early autumn, moderate solar effect
+  [0.68, 0.60, 0.56, 0.54, 0.57, 0.76, 0.96, 1.10, 1.04, 0.90, 0.76, 0.66, 0.62, 0.60, 0.66, 0.86, 1.14, 1.44, 1.54, 1.44, 1.26, 1.06, 0.88, 0.74],
+  // Oct – autumn
+  [0.68, 0.62, 0.58, 0.56, 0.58, 0.74, 0.94, 1.14, 1.10, 0.97, 0.84, 0.77, 0.74, 0.72, 0.77, 0.94, 1.20, 1.47, 1.57, 1.47, 1.30, 1.10, 0.92, 0.76],
+  // Nov – near-zero average; shape retained but absolute values are tiny
+  [0.72, 0.66, 0.62, 0.60, 0.62, 0.78, 0.98, 1.14, 1.10, 1.00, 0.90, 0.84, 0.80, 0.78, 0.80, 0.92, 1.12, 1.38, 1.48, 1.40, 1.24, 1.06, 0.92, 0.80],
+  // Dec – return to winter
+  [0.61, 0.55, 0.51, 0.49, 0.51, 0.67, 1.01, 1.37, 1.34, 1.14, 1.01, 0.94, 0.91, 0.89, 0.91, 1.04, 1.24, 1.51, 1.57, 1.44, 1.27, 1.07, 0.87, 0.71],
+] as const;
+
+// Pre-compute hour × month reference prices (EUR/kWh) from the real 2025 NL data.
+// Each row is normalised so its mean equals the actual monthly average.
+const NL_DAY_AHEAD_2025_EUR_KWH: ReadonlyArray<ReadonlyArray<number>> = NL_INTRADAY_SHAPE_2025.map(
+  (shape, month) => {
+    const shapeSum = (shape as readonly number[]).reduce((a, b) => a + b, 0);
+    const avgEurKwh = NL_MONTHLY_AVG_EUR_MWH_2025[month] / 1000;
+    return (shape as readonly number[]).map((s) => Math.max(0, (s / shapeSum) * 24 * avgEurKwh));
+  },
+);
 
 export interface EconomicSimulationResult {
   version: 'v4-euro-optimizer';
@@ -63,7 +108,11 @@ interface TransitionParams {
 }
 
 function dayOfYear(date: Date): number {
-  return Math.floor((Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) - Date.UTC(date.getUTCFullYear(), 0, 0)) / 86_400_000);
+  return Math.floor(
+    (Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) -
+      Date.UTC(date.getUTCFullYear(), 0, 0)) /
+      86_400_000,
+  );
 }
 
 function normalizedShape(shape: LoadProfile['shape']): number[] {
@@ -153,10 +202,10 @@ export function generateEconomicTariffs(samples: HourlyWeatherSample[], tariff?:
     const date = new Date(sample.timestamp);
     if (!tariff || tariff.dynamic) {
       const month = date.getUTCMonth();
-      const day = dayOfYear(date);
-      const isWeekend = date.getUTCDay() === 0 || date.getUTCDay() === 6;
-      const dailyVar = 1 + 0.1 * Math.sin(day * 1.7 + month * 0.4);
-      const apx = Math.max(0.005, Math.min(0.8, HOURLY_APX_PRICE_2025[month][date.getUTCHours()] * (isWeekend ? 0.82 : 1) * dailyVar));
+      const hour = date.getUTCHours();
+      // Weekends typically ~10% lower than weekdays in 2025 NL day-ahead market.
+      const weekendFactor = date.getUTCDay() === 0 || date.getUTCDay() === 6 ? 0.90 : 1.0;
+      const apx = NL_DAY_AHEAD_2025_EUR_KWH[month][hour] * weekendFactor;
       buy.push(apx + (tariff?.energyTaxEurPerKwh ?? 0.1316) + 0.04);
       sell.push(apx + (tariff?.staticExportEurPerKwh ?? 0));
     } else {

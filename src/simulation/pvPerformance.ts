@@ -201,3 +201,126 @@ export function simulateProjectElectricalHour(
     arrayDcW,
   };
 }
+
+// ---------------------------------------------------------------------------
+// I–V / P–V curve generation
+// ---------------------------------------------------------------------------
+
+export interface IVPoint {
+  /** Voltage (V) */
+  v: number;
+  /** Current (A) */
+  i: number;
+  /** Power (W) */
+  p: number;
+}
+
+export interface IVCurveResult {
+  /** Unshaded I–V / P–V operating points. */
+  unshaded: IVPoint[];
+  /** Shaded I–V / P–V operating points (shade factor applied). */
+  shaded: IVPoint[];
+  /** Temperature- and irradiance-corrected Voc (V). */
+  vocV: number;
+  /** Unshaded short-circuit current (A). */
+  iscA: number;
+  /** Unshaded maximum-power voltage (V). */
+  vmppV: number;
+  /** Unshaded maximum-power current (A). */
+  imppA: number;
+  /** Shaded short-circuit current (A). */
+  iscShadedA: number;
+  /** Number of panels in the series string (used to scale the voltage axis). */
+  panelsInSeries: number;
+}
+
+/**
+ * Build an I–V / P–V curve for a single panel (or a uniform series string of
+ * identical panels) using the simplified single-diode approximation.
+ *
+ * The shaded curve is produced by scaling Isc and Impp down by
+ * `(1 − shadeFactor)`, which is the physical effect of proportional
+ * irradiance reduction across all cells in the string (bypass-diode model
+ * simplification). Voc is kept constant for visualisation purposes
+ * (its actual log-scale decrease is < 2 % at 50 % shade and invisible on a
+ * chart).
+ *
+ * @param panelsInSeries – number of identical panels wired in series; scales
+ *   the voltage axis while keeping the current axis unchanged.
+ * @param pointCount – number of (V, I, P) samples to generate; 80 gives a
+ *   smooth curve while remaining lightweight.
+ */
+export function buildPanelIVCurve(
+  panelType: PanelType,
+  poa: PlaneOfArrayIrradiance,
+  shadeFactor: number,
+  ambientC: number,
+  windSpeedMs: number,
+  panelsInSeries = 1,
+  pointCount = 80,
+): IVCurveResult {
+  const emptyResult: IVCurveResult = {
+    unshaded: [],
+    shaded: [],
+    vocV: 0,
+    iscA: 0,
+    vmppV: 0,
+    imppA: 0,
+    iscShadedA: 0,
+    panelsInSeries,
+  };
+
+  const irr = Math.max(0, poa.totalWm2);
+  if (irr < 5) return emptyResult;
+
+  const irrFrac = irr / STC_IRRADIANCE_WM2;
+  const cellTemp = panelCellTemperatureC(irr, ambientC, windSpeedMs);
+  const dT = cellTemp - 25;
+
+  // Temperature-corrected voltages (current has a negligible temp coefficient
+  // for the purposes of a visual curve – typically +0.04 %/°C for Isc).
+  const vmpTempCoeff = panelType.tempCoeffVocPctPerC * 0.8;
+  const vocSingle = Math.max(0.1, panelType.vocV * (1 + (panelType.tempCoeffVocPctPerC / 100) * dT));
+  const vmppSingle = Math.max(0.05, panelType.vmpV * (1 + (vmpTempCoeff / 100) * dT));
+
+  // String voltages
+  const vocV = vocSingle * panelsInSeries;
+  const vmppV = vmppSingle * panelsInSeries;
+
+  // Irradiance-scaled currents (temperature effect on Isc ≈ 0.04 %/°C – omitted)
+  const iscA = panelType.iscA * irrFrac;
+  const imppA = panelType.impA * irrFrac;
+  const shadeMultiplier = 1 - clamp(shadeFactor, 0, 0.98);
+  const iscShadedA = iscA * shadeMultiplier;
+  const imppShadedA = imppA * shadeMultiplier;
+
+  /**
+   * Simplified single-diode model:
+   *   I(V) = Isc · (1 − exp((V − Voc) / Vt))
+   * where Vt is derived from the MPP constraint:
+   *   Vt = (Voc − Vmpp) / ln(Isc / (Isc − Impp))
+   */
+  const buildPoints = (isc: number, impp: number): IVPoint[] => {
+    if (isc < 1e-6 || impp < 1e-6 || impp >= isc) return [];
+    const vt = (vocV - vmppV) / Math.log(isc / (isc - impp));
+    if (!Number.isFinite(vt) || vt <= 0) return [];
+    const pts: IVPoint[] = [];
+    for (let k = 0; k <= pointCount; k++) {
+      const v = (k / pointCount) * vocV;
+      const i = Math.max(0, isc * (1 - Math.exp((v - vocV) / vt)));
+      pts.push({ v, i, p: v * i });
+    }
+    return pts;
+  };
+
+  return {
+    unshaded: buildPoints(iscA, imppA),
+    shaded: buildPoints(iscShadedA, imppShadedA),
+    vocV,
+    iscA,
+    vmppV,
+    imppA,
+    iscShadedA,
+    panelsInSeries,
+  };
+}

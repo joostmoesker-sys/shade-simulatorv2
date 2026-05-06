@@ -830,6 +830,99 @@ body,
   font-size: 0.65rem;
 }
 
+/* I–V / P–V chart */
+.iv-pv-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 0.75rem;
+}
+.iv-pv-chart {
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+.iv-pv-chart__caption {
+  padding: 0.45rem 0.75rem 0;
+  font-size: 0.78rem;
+  color: var(--color-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+.iv-pv-chart__caption small {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+}
+.iv-pv-chart__legend-shade {
+  color: #f59e0b;
+}
+.iv-pv-chart__legend-unshade {
+  color: #ef4444;
+}
+.iv-pv-chart__svg {
+  display: block;
+  width: 100%;
+}
+.iv-pv-chart__grid {
+  stroke: var(--color-border);
+  stroke-width: 0.5;
+  fill: none;
+}
+.iv-pv-chart__axis {
+  stroke: var(--color-muted);
+  stroke-width: 1;
+  fill: none;
+}
+.iv-pv-chart__tick {
+  stroke: var(--color-muted);
+  stroke-width: 1;
+  fill: none;
+}
+.iv-pv-chart__vmpp {
+  stroke: #94a3b8;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  fill: none;
+}
+.iv-pv-chart__label {
+  font-size: 8px;
+  fill: var(--color-muted);
+}
+.iv-pv-chart__axis-label {
+  font-size: 8px;
+  fill: var(--color-muted);
+}
+/* I–V curves */
+.iv-pv-chart__iv--unshaded {
+  stroke: #f59e0b;
+  stroke-width: 2;
+  fill: none;
+}
+.iv-pv-chart__iv--shaded {
+  stroke: #ef4444;
+  stroke-width: 2;
+  fill: none;
+  stroke-dasharray: 5 3;
+}
+/* P–V curves */
+.iv-pv-chart__pv--unshaded {
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  fill: none;
+  opacity: 0.65;
+}
+.iv-pv-chart__pv--shaded {
+  stroke: #f97316;
+  stroke-width: 1.5;
+  fill: none;
+  opacity: 0.55;
+  stroke-dasharray: 5 3;
+}
+
 .pv-array-map-container {
   position: relative;
   min-height: 0;

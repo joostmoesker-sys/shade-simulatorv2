@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Inverter, MPPT, PanelType } from '../../src/model/schema';
 import {
+  buildPanelIVCurve,
   calculateInverterElectricalOutput,
   calculateMPPTElectricalOutput,
   calculatePanelElectricalOutput,
@@ -91,5 +92,52 @@ describe('PV electrical performance', () => {
     expect(mpptResult.currentLimitedLossW).toBeGreaterThan(0);
     expect(mpptResult.pDcW).toBeLessThan(8000);
     expect(inverterResult.pAcW).toBeLessThanOrEqual(inverter.pAcMaxW);
+  });
+
+  it('builds I–V / P–V curve with correct Isc, Voc and MPP properties', () => {
+    const poa = { beamWm2: 800, diffuseWm2: 120, groundReflectedWm2: 20, totalWm2: 940, incidenceAngleDeg: 10 };
+    const curve = buildPanelIVCurve(panelType, poa, 0, 20, 2);
+
+    // Must produce curve points
+    expect(curve.unshaded.length).toBeGreaterThan(0);
+    // First point is near Isc at V≈0
+    expect(curve.unshaded[0].v).toBeCloseTo(0, 0);
+    expect(curve.unshaded[0].i).toBeCloseTo(curve.iscA, 1);
+    // Last point is near Voc at I≈0
+    const last = curve.unshaded[curve.unshaded.length - 1];
+    expect(last.v).toBeCloseTo(curve.vocV, 0);
+    expect(last.i).toBeCloseTo(0, 1);
+    // Power curve has its peak somewhere in the middle
+    const pmpp = Math.max(...curve.unshaded.map((pt) => pt.p));
+    expect(pmpp).toBeGreaterThan(300);
+    const vmppPoint = curve.unshaded.find((pt) => pt.p === pmpp);
+    expect(vmppPoint!.v).toBeGreaterThan(0);
+    expect(vmppPoint!.v).toBeLessThan(curve.vocV);
+  });
+
+  it('reduces Isc on shaded curve without changing Voc', () => {
+    const poa = { beamWm2: 800, diffuseWm2: 120, groundReflectedWm2: 20, totalWm2: 940, incidenceAngleDeg: 10 };
+    const unshaded = buildPanelIVCurve(panelType, poa, 0, 20, 2);
+    const shaded = buildPanelIVCurve(panelType, poa, 0.5, 20, 2);
+
+    // Isc should be halved
+    expect(shaded.iscShadedA).toBeCloseTo(unshaded.iscA * 0.5, 2);
+    // Voc is kept the same in the simplified model
+    expect(shaded.vocV).toBeCloseTo(unshaded.vocV, 1);
+    // Shaded curve has lower maximum power
+    const pmppUnshaded = Math.max(...unshaded.unshaded.map((pt) => pt.p));
+    const pmppShaded = Math.max(...shaded.shaded.map((pt) => pt.p));
+    expect(pmppShaded).toBeLessThan(pmppUnshaded);
+  });
+
+  it('scales voltage axis proportionally for series string', () => {
+    const poa = { beamWm2: 800, diffuseWm2: 120, groundReflectedWm2: 20, totalWm2: 940, incidenceAngleDeg: 10 };
+    const single = buildPanelIVCurve(panelType, poa, 0, 20, 2, 1);
+    const series10 = buildPanelIVCurve(panelType, poa, 0, 20, 2, 10);
+
+    expect(series10.vocV).toBeCloseTo(single.vocV * 10, 0);
+    expect(series10.vmppV).toBeCloseTo(single.vmppV * 10, 0);
+    // Current axis unchanged
+    expect(series10.iscA).toBeCloseTo(single.iscA, 2);
   });
 });
