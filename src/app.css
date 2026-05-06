@@ -735,6 +735,37 @@ body,
   opacity: 0.55;
   cursor: not-allowed;
 }
+.storage-loads-tab .field-grid label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+.storage-loads-tab input,
+.storage-loads-tab select {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font: inherit;
+}
+.storage-loads-tab input[type='checkbox'] {
+  width: auto;
+}
+.sub-editor-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+.sub-editor-header button {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-panel);
+  color: var(--color-text);
+}
 .simulation-stats {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -787,6 +818,12 @@ body,
   min-height: 4px;
   border-radius: 4px 4px 0 0;
   background: linear-gradient(180deg, #f59e0b, var(--color-accent));
+}
+.monthly-chart--cashflow .monthly-chart__bar span {
+  background: linear-gradient(180deg, #22c55e, #15803d);
+}
+.monthly-chart--cashflow .monthly-chart__bar .monthly-chart__bar-negative {
+  background: linear-gradient(180deg, #f97316, #b91c1c);
 }
 .monthly-chart__bar small {
   color: var(--color-muted);

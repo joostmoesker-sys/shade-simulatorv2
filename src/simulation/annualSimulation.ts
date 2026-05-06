@@ -1,4 +1,5 @@
 import type { Project } from '../model/schema';
+import { simulateProjectEconomics, type EconomicSimulationResult } from './economicSimulation';
 import { calculatePlaneOfArrayIrradiance } from './irradiance';
 import { estimateArrayShadeFactors, buildShadowFeatureCollection } from './shading';
 import { calculateSolarPosition } from './solarPosition';
@@ -22,6 +23,7 @@ export interface AnnualSimulationResult {
   voltageCurrentLossKwh: number;
   standbyLossKwh: number;
   monthlyAcKwh: number[];
+  economic: EconomicSimulationResult;
   samples: number;
   weatherSource: 'open-meteo-archive' | 'provided';
   elapsedMs: number;
@@ -44,6 +46,8 @@ export async function simulateProjectYear(
   const year = options.year ?? 2025;
   const weatherSamples = options.weatherSamples ?? (await fetchOpenMeteoArchiveWeather(project.location, year));
   const monthlyAcKwh = Array.from({ length: 12 }, () => 0);
+  const hourlyAcKwh: number[] = [];
+  const usedWeatherSamples: HourlyWeatherSample[] = [];
   const totals = {
     acKwh: 0,
     dcKwh: 0,
@@ -75,6 +79,8 @@ export async function simulateProjectYear(
     const hours = sampleDurationHours(weatherSamples, index);
     const month = date.getUTCMonth();
     const acKwh = electrical.pAcW * hours * WATT_HOURS_TO_KWH;
+    hourlyAcKwh.push(acKwh);
+    usedWeatherSamples.push(sample);
 
     totals.acKwh += acKwh;
     totals.dcKwh += electrical.pDcW * hours * WATT_HOURS_TO_KWH;
@@ -86,11 +92,13 @@ export async function simulateProjectYear(
     totals.standbyLossKwh += electrical.standbyLossW * hours * WATT_HOURS_TO_KWH;
     monthlyAcKwh[month] += acKwh;
   }
+  const economic = simulateProjectEconomics(project, hourlyAcKwh, usedWeatherSamples);
 
   return {
     year,
     ...totals,
     monthlyAcKwh,
+    economic,
     samples: weatherSamples.length,
     weatherSource: options.weatherSamples ? 'provided' : 'open-meteo-archive',
     elapsedMs: performance.now() - startedAt,

@@ -30,6 +30,7 @@ describe('createProject', () => {
     expect(project.pv.arrays).toEqual([]);
     expect(project.electrical.inverters).toEqual([]);
     expect(project.storage.batteries).toEqual([]);
+    expect(project.loads.electricVehicles).toEqual([]);
   });
 
   it('throws when the location is outside NL', () => {

@@ -44,6 +44,10 @@ function kwhLabel(value: number): string {
   return `${value.toLocaleString('nl-NL', { maximumFractionDigits: 0 })} kWh`;
 }
 
+function euroLabel(value: number): string {
+  return `€${value.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`;
+}
+
 function MonthlyEnergyChart({ values }: { values: number[] }) {
   const max = Math.max(1, ...values);
   const months = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
@@ -52,6 +56,25 @@ function MonthlyEnergyChart({ values }: { values: number[] }) {
       {values.map((value, index) => (
         <div key={months[index]} className="monthly-chart__bar">
           <span style={{ height: `${Math.max(4, (value / max) * 100)}%` }} title={`${months[index]}: ${kwhLabel(value)}`} />
+          <small>{months[index]}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MonthlyCashflowChart({ values }: { values: number[] }) {
+  const max = Math.max(1, ...values.map((value) => Math.abs(value)));
+  const months = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
+  return (
+    <div className="monthly-chart monthly-chart--cashflow" aria-label="Maandelijkse cashflow grafiek">
+      {values.map((value, index) => (
+        <div key={months[index]} className="monthly-chart__bar">
+          <span
+            className={value < 0 ? 'monthly-chart__bar-negative' : undefined}
+            style={{ height: `${Math.max(4, (Math.abs(value) / max) * 100)}%` }}
+            title={`${months[index]}: ${euroLabel(value)}`}
+          />
           <small>{months[index]}</small>
         </div>
       ))}
@@ -221,6 +244,44 @@ export function SimulationTab() {
           <p className="hint">
             {annualResult.samples.toLocaleString('nl-NL')} uurstappen verwerkt in{' '}
             {(annualResult.elapsedMs / 1000).toFixed(1)} s via worker/fallback.
+          </p>
+        </section>
+      )}
+
+      {annualResult && (
+        <section className="simulation-summary" aria-label="Economische resultaten 2025">
+          <h3>Economische resultaten 2025</h3>
+          <dl className="array-stats simulation-stats">
+            <div>
+              <dt>V4 besparing</dt>
+              <dd>{euroLabel(annualResult.economic.annualSavingsEur)}</dd>
+            </div>
+            <div>
+              <dt>Eigenverbruik</dt>
+              <dd>{annualResult.economic.selfConsumptionPct.toFixed(0)}%</dd>
+            </div>
+            <div>
+              <dt>Import</dt>
+              <dd>{kwhLabel(annualResult.economic.importKwh)}</dd>
+            </div>
+            <div>
+              <dt>Export</dt>
+              <dd>{kwhLabel(annualResult.economic.exportKwh)}</dd>
+            </div>
+            <div>
+              <dt>Accucycli</dt>
+              <dd>{annualResult.economic.batteryCycles}</dd>
+            </div>
+            <div>
+              <dt>EV load</dt>
+              <dd>{kwhLabel(annualResult.economic.diagnostics.evLoadKwh)}</dd>
+            </div>
+          </dl>
+          <MonthlyCashflowChart values={annualResult.economic.monthlySavingsEur} />
+          <p className="hint">
+            V4 euro-optimizer · SOC stap {annualResult.economic.diagnostics.socStepKwh.toFixed(2)} kWh · eind-SOC{' '}
+            {annualResult.economic.diagnostics.finalSocKwh.toFixed(1)} kWh · dispatch sample{' '}
+            {annualResult.economic.dispatchSample.length} uur.
           </p>
         </section>
       )}

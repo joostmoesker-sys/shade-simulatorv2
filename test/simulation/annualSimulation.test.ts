@@ -21,6 +21,8 @@ describe('simulateProjectYear', () => {
   it('calculates monthly AC energy and electrical losses from hourly weather', async () => {
     const array = useProjectStore.getState().addPVArray({ rows: 1, columns: 5, tiltDeg: 30, azimuthDeg: 180 });
     const inverter = useProjectStore.getState().addInverter();
+    useProjectStore.getState().addBattery({ capacityKwh: 10, pChargeMaxKw: 5, pDischargeMaxKw: 5 });
+    useProjectStore.getState().addLoadProfile({ annualKwh: 3650 });
     useProjectStore.getState().addWiringString(inverter.id, inverter.mppts[0].id, [
       { arrayId: array.id, row: 0, column: 0 },
       { arrayId: array.id, row: 0, column: 1 },
@@ -53,6 +55,8 @@ describe('simulateProjectYear', () => {
 
     expect(result.acKwh).toBeGreaterThan(1);
     expect(result.monthlyAcKwh[5]).toBeCloseTo(result.acKwh);
+    expect(result.economic.version).toBe('v4-euro-optimizer');
+    expect(result.economic.baselineCostEur).toBeGreaterThan(0);
     expect(result.samples).toBe(2);
     expect(result.weatherSource).toBe('provided');
   });

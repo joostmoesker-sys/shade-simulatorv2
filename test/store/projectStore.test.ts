@@ -176,4 +176,25 @@ describe('projectStore', () => {
     useProjectStore.getState().removePVArray(array.id);
     expect(useProjectStore.getState().project.electrical.wiring).toHaveLength(0);
   });
+
+  it('creates and updates phase 4 battery, load, EV and tariff profiles', () => {
+    const battery = useProjectStore.getState().addBattery({ capacityKwh: 64, allowGridCharge: true });
+    const load = useProjectStore.getState().addLoadProfile({ annualKwh: 4200 });
+    const heatPump = useProjectStore.getState().addHeatPump({ winterDayKwh: 14 });
+    const ev = useProjectStore.getState().addElectricVehicle({ name: 'EV', weekdayUseKwh: 5.5 });
+    const tariff = useProjectStore.getState().addTariff({ staticImportEurPerKwh: 0.32 });
+
+    useProjectStore.getState().updateBattery(battery.id, { pDischargeMaxKw: 10 });
+    useProjectStore.getState().updateLoadProfile(load.id, { shape: 'work_from_home' });
+    useProjectStore.getState().updateHeatPump(heatPump.id, { heatingBaseTempC: 16 });
+    useProjectStore.getState().updateElectricVehicle(ev.id, { chargePowerKw: 7.4 });
+    useProjectStore.getState().updateTariff(tariff.id, { staticExportEurPerKwh: 0.08 });
+
+    const project = useProjectStore.getState().project;
+    expect(project.storage.batteries[0]).toMatchObject({ capacityKwh: 64, pDischargeMaxKw: 10 });
+    expect(project.loads.base[0]).toMatchObject({ annualKwh: 4200, shape: 'work_from_home' });
+    expect(project.loads.heatPumps[0]).toMatchObject({ winterDayKwh: 14, heatingBaseTempC: 16 });
+    expect(project.loads.electricVehicles[0]).toMatchObject({ name: 'EV', chargePowerKw: 7.4 });
+    expect(project.tariffs[0]).toMatchObject({ staticImportEurPerKwh: 0.32, staticExportEurPerKwh: 0.08 });
+  });
 });

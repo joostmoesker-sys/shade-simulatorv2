@@ -63,6 +63,32 @@ describe('<SimulationTab>', () => {
       voltageCurrentLossKwh: 4,
       standbyLossKwh: 0,
       monthlyAcKwh: [20, 40, 80, 120, 140, 160, 170, 160, 140, 100, 60, 44],
+      economic: {
+        version: 'v4-euro-optimizer',
+        annualSavingsEur: 456,
+        baselineCostEur: 1200,
+        importCostEur: 800,
+        exportRevenueEur: 56,
+        importKwh: 2100,
+        exportKwh: 500,
+        selfConsumedKwh: 734,
+        selfConsumptionPct: 59.5,
+        batteryChargedKwh: 300,
+        batteryDischargedKwh: 280,
+        batteryCycles: 5,
+        monthlySavingsEur: [10, 20, 25, 40, 50, 60, 65, 60, 45, 35, 25, 21],
+        monthlyImportCostEur: [90, 80, 75, 65, 55, 45, 40, 45, 60, 70, 80, 95],
+        monthlyRevenueEur: [1, 2, 5, 8, 10, 12, 14, 12, 8, 5, 3, 2],
+        dispatchSample: [{ hour: 4320, socKwh: 30, chargeKwh: 2, dischargeKwh: 0, priceEurPerKwh: 0.2, action: 'charge' }],
+        diagnostics: {
+          finalSocKwh: 30,
+          socStepKwh: 0.63,
+          curtailedPvKwh: 0,
+          evLoadKwh: 1800,
+          baseLoadKwh: 3500,
+          heatPumpLoadKwh: 1200,
+        },
+      },
       samples: 8760,
       weatherSource: 'open-meteo-archive',
       elapsedMs: 1200,
@@ -84,5 +110,8 @@ describe('<SimulationTab>', () => {
     expect(runAnnualSimulation).toHaveBeenCalledWith(useProjectStore.getState().project, { year: 2025 });
     expect(screen.getByText('1.234 kWh')).toBeInTheDocument();
     expect(screen.getByLabelText('Maandopbrengst grafiek')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Economische resultaten 2025' })).toBeInTheDocument();
+    expect(screen.getByText('€456')).toBeInTheDocument();
+    expect(screen.getByLabelText('Maandelijkse cashflow grafiek')).toBeInTheDocument();
   });
 });
