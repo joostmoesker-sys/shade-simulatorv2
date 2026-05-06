@@ -131,7 +131,7 @@ function IVPVChart({ curve, label }: IVPVChartProps) {
         )}
         ){' '}
         <small>
-          MPP {curve.mppW.toFixed(0)} W · {curve.mppV.toFixed(0)} V · {curve.mppA.toFixed(1)} A
+          MPP {curve.mppV.toFixed(0)} V · {curve.mppA.toFixed(1)} A · {curve.mppW.toFixed(0)} W
         </small>
       </figcaption>
       <svg

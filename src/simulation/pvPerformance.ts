@@ -414,6 +414,7 @@ export function buildMPPTIVCurve(
   const arrays = new Map(project.pv.arrays.map((array) => [array.id, array]));
   const wiring = project.electrical.wiring.find((item) => item.inverterId === inverterId && item.mpptId === mpptId);
   if (!wiring || wiring.strings.length === 0) return null;
+  const panelsInSeries = Math.max(...wiring.strings.map((string) => string.panels.length));
 
   const buildStringCurves = (shadeOverride?: number): IVPoint[][] =>
     wiring.strings.flatMap((string) => {
@@ -441,7 +442,7 @@ export function buildMPPTIVCurve(
     vmppV: findCurveMPP(unshaded).v,
     imppA: findCurveMPP(unshaded).i,
     iscShadedA: shaded[0].i,
-    panelsInSeries: 0,
+    panelsInSeries,
     mppV: mpp.v,
     mppA: mpp.i,
     mppW: mpp.p,
