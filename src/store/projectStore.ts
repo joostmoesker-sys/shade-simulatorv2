@@ -182,7 +182,7 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
   selectedSceneObjectId: null,
   selectedPVArrayId: null,
   objectMapAddKind: null,
-  simulationPreviewTimestamp: '2026-06-21T12:00:00.000Z',
+  simulationPreviewTimestamp: new Date().toISOString(),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSelectedSceneObjectId: (id) => set({ selectedSceneObjectId: id }),
   setSelectedPVArrayId: (id) => set({ selectedPVArrayId: id }),

@@ -722,6 +722,19 @@ body,
 .simulation-controls input[type='range'] {
   width: 100%;
 }
+.simulation-controls button {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+.simulation-controls button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .simulation-stats {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -742,6 +755,42 @@ body,
 .simulation-array-list span {
   color: var(--color-muted);
   font-size: 0.85rem;
+}
+.error-text {
+  margin: 0;
+  color: #8c1d18;
+  font-size: 0.85rem;
+}
+.monthly-chart {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: end;
+  gap: 0.35rem;
+  height: 160px;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+.monthly-chart__bar {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  align-items: end;
+  min-height: 0;
+  height: 100%;
+  gap: 0.3rem;
+  text-align: center;
+}
+.monthly-chart__bar span {
+  display: block;
+  width: 100%;
+  min-height: 4px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, #f59e0b, var(--color-accent));
+}
+.monthly-chart__bar small {
+  color: var(--color-muted);
+  font-size: 0.65rem;
 }
 
 .pv-array-map-container {

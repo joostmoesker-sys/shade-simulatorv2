@@ -1,3 +1,6 @@
+import { useState } from 'react';
+
+import { runAnnualSimulation, type AnnualSimulationResult } from '../simulation/annualSimulation';
 import { calculatePlaneOfArrayIrradiance } from '../simulation/irradiance';
 import { estimateArrayShadeFactors, buildShadowFeatureCollection } from '../simulation/shading';
 import { calculateSolarPosition } from '../simulation/solarPosition';
@@ -7,12 +10,16 @@ import { useProjectStore } from '../store/projectStore';
 const MINUTES_PER_DAY = 24 * 60;
 
 function dateInputValue(timestamp: string): string {
-  return timestamp.slice(0, 10);
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function minuteOfDay(timestamp: string): number {
   const date = new Date(timestamp);
-  return date.getUTCHours() * 60 + date.getUTCMinutes();
+  return date.getHours() * 60 + date.getMinutes();
 }
 
 function timeLabel(minutes: number): string {
@@ -24,13 +31,41 @@ function timeLabel(minutes: number): string {
 function timestampFromDateAndMinutes(dateValue: string, minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  return new Date(Date.UTC(Number(dateValue.slice(0, 4)), Number(dateValue.slice(5, 7)) - 1, Number(dateValue.slice(8, 10)), hours, mins)).toISOString();
+  return new Date(
+    Number(dateValue.slice(0, 4)),
+    Number(dateValue.slice(5, 7)) - 1,
+    Number(dateValue.slice(8, 10)),
+    hours,
+    mins,
+  ).toISOString();
+}
+
+function kwhLabel(value: number): string {
+  return `${value.toLocaleString('nl-NL', { maximumFractionDigits: 0 })} kWh`;
+}
+
+function MonthlyEnergyChart({ values }: { values: number[] }) {
+  const max = Math.max(1, ...values);
+  const months = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
+  return (
+    <div className="monthly-chart" aria-label="Maandopbrengst grafiek">
+      {values.map((value, index) => (
+        <div key={months[index]} className="monthly-chart__bar">
+          <span style={{ height: `${Math.max(4, (value / max) * 100)}%` }} title={`${months[index]}: ${kwhLabel(value)}`} />
+          <small>{months[index]}</small>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function SimulationTab() {
   const project = useProjectStore((s) => s.project);
   const timestamp = useProjectStore((s) => s.simulationPreviewTimestamp);
   const setTimestamp = useProjectStore((s) => s.setSimulationPreviewTimestamp);
+  const [annualResult, setAnnualResult] = useState<AnnualSimulationResult | null>(null);
+  const [annualError, setAnnualError] = useState<string | null>(null);
+  const [isRunningAnnual, setIsRunningAnnual] = useState(false);
   const date = new Date(timestamp);
   const selectedDate = dateInputValue(timestamp);
   const selectedMinute = minuteOfDay(timestamp);
@@ -58,6 +93,23 @@ export function SimulationTab() {
     setTimestamp(timestampFromDateAndMinutes(selectedDate, minutes));
   };
 
+  const hasCompleteElectricalModel =
+    project.pv.arrays.length > 0 &&
+    project.electrical.inverters.length > 0 &&
+    project.electrical.wiring.some((item) => item.strings.length > 0);
+
+  const runAnnual = async () => {
+    setIsRunningAnnual(true);
+    setAnnualError(null);
+    try {
+      setAnnualResult(await runAnnualSimulation(project, { year: 2025 }));
+    } catch (error) {
+      setAnnualError(error instanceof Error ? error.message : 'Jaarberekening mislukt');
+    } finally {
+      setIsRunningAnnual(false);
+    }
+  };
+
   return (
     <div className="panel-content simulation-tab">
       <section className="simulation-controls">
@@ -80,6 +132,13 @@ export function SimulationTab() {
             onChange={(e) => updateMinute(Number(e.target.value))}
           />
         </label>
+        <button type="button" onClick={runAnnual} disabled={!hasCompleteElectricalModel || isRunningAnnual}>
+          {isRunningAnnual ? 'Jaar 2025 wordt berekend…' : 'Bereken jaar 2025'}
+        </button>
+        {!hasCompleteElectricalModel && (
+          <p className="hint">Voeg PV arrays, inverter(s) en bekabelde strings toe voor de jaarberekening.</p>
+        )}
+        {annualError && <p className="error-text">{annualError}</p>}
       </section>
 
       <section className="simulation-summary" aria-label="Simulatiepreview resultaten">
@@ -128,6 +187,43 @@ export function SimulationTab() {
           <p className="empty-state">Voeg PV arrays toe om POA-instraling en schaduwfactoren te zien.</p>
         )}
       </section>
+
+      {annualResult && (
+        <section className="simulation-summary" aria-label="Jaarresultaten 2025">
+          <h3>Jaarresultaten 2025</h3>
+          <dl className="array-stats simulation-stats">
+            <div>
+              <dt>AC opbrengst</dt>
+              <dd>{kwhLabel(annualResult.acKwh)}</dd>
+            </div>
+            <div>
+              <dt>DC opbrengst</dt>
+              <dd>{kwhLabel(annualResult.dcKwh)}</dd>
+            </div>
+            <div>
+              <dt>Schaduwverlies</dt>
+              <dd>{kwhLabel(annualResult.shadeLossKwh)}</dd>
+            </div>
+            <div>
+              <dt>Mismatchverlies</dt>
+              <dd>{kwhLabel(annualResult.mismatchLossKwh)}</dd>
+            </div>
+            <div>
+              <dt>Clipping</dt>
+              <dd>{kwhLabel(annualResult.clippingLossKwh)}</dd>
+            </div>
+            <div>
+              <dt>Weerbron</dt>
+              <dd>{annualResult.weatherSource === 'open-meteo-archive' ? 'Open-Meteo 2025' : 'testdata'}</dd>
+            </div>
+          </dl>
+          <MonthlyEnergyChart values={annualResult.monthlyAcKwh} />
+          <p className="hint">
+            {annualResult.samples.toLocaleString('nl-NL')} uurstappen verwerkt in{' '}
+            {(annualResult.elapsedMs / 1000).toFixed(1)} s via worker/fallback.
+          </p>
+        </section>
+      )}
     </div>
   );
 }
