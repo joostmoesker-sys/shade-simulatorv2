@@ -302,6 +302,10 @@ export const TariffProfileSchema = z.object({
   staticExportEurPerKwh: NonNegative.default(0.05),
   /** Energy tax (EUR/kWh) added to the import price. */
   energyTaxEurPerKwh: NonNegative.default(0.1316),
+  /** Energy-company surcharge added to imported dynamic electricity (EUR/kWh). */
+  importMarkupEurPerKwh: NonNegative.default(0.03),
+  /** Energy-company surcharge added to exported dynamic electricity (EUR/kWh). */
+  exportMarkupEurPerKwh: NonNegative.default(0),
 });
 export type TariffProfile = z.infer<typeof TariffProfileSchema>;
 

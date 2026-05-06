@@ -5,7 +5,10 @@ type BatteryNumberField = Extract<keyof Battery, 'capacityKwh' | 'pChargeMaxKw' 
 type LoadNumberField = Extract<keyof LoadProfile, 'annualKwh'>;
 type HeatPumpNumberField = Extract<keyof HeatPumpProfile, 'winterDayKwh' | 'heatingBaseTempC'>;
 type EVNumberField = Extract<keyof ElectricVehicleProfile, 'batteryCapacityKwh' | 'chargePowerKw' | 'weekdayUseKwh' | 'weekendUseKwh' | 'chargeStartHour' | 'chargeEndHour'>;
-type TariffNumberField = Extract<keyof TariffProfile, 'staticImportEurPerKwh' | 'staticExportEurPerKwh' | 'energyTaxEurPerKwh'>;
+type TariffNumberField = Extract<
+  keyof TariffProfile,
+  'staticImportEurPerKwh' | 'staticExportEurPerKwh' | 'energyTaxEurPerKwh' | 'importMarkupEurPerKwh' | 'exportMarkupEurPerKwh'
+>;
 
 function numberValue(rawValue: string): number | null {
   const value = Number(rawValue);
@@ -153,6 +156,8 @@ export function StorageLoadsTab() {
             <label>Import €/kWh<input type="number" min={0} step={0.01} value={tariff.staticImportEurPerKwh} onChange={(e) => updateTariffNumber('staticImportEurPerKwh', e.target.value)} /></label>
             <label>Export €/kWh<input type="number" min={0} step={0.01} value={tariff.staticExportEurPerKwh} onChange={(e) => updateTariffNumber('staticExportEurPerKwh', e.target.value)} /></label>
             <label>Energiebelasting €/kWh<input type="number" min={0} step={0.001} value={tariff.energyTaxEurPerKwh} onChange={(e) => updateTariffNumber('energyTaxEurPerKwh', e.target.value)} /></label>
+            <label>Inkoop opslag €/kWh<input type="number" min={0} step={0.001} value={tariff.importMarkupEurPerKwh} onChange={(e) => updateTariffNumber('importMarkupEurPerKwh', e.target.value)} /></label>
+            <label>Verkoop opslag €/kWh<input type="number" min={0} step={0.001} value={tariff.exportMarkupEurPerKwh} onChange={(e) => updateTariffNumber('exportMarkupEurPerKwh', e.target.value)} /></label>
             <label><input type="checkbox" checked={tariff.dynamic} onChange={(e) => updateTariff(tariff.id, { dynamic: e.target.checked })} /> Dynamisch APX-profiel 2025</label>
           </div>
         )}

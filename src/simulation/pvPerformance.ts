@@ -232,6 +232,12 @@ export interface IVCurveResult {
   iscShadedA: number;
   /** Number of panels in the series string (used to scale the voltage axis). */
   panelsInSeries: number;
+  /** Actual maximum-power voltage (V) of the shaded/operating curve. */
+  mppV: number;
+  /** Actual maximum-power current (A) of the shaded/operating curve. */
+  mppA: number;
+  /** Actual maximum power (W) of the shaded/operating curve. */
+  mppW: number;
 }
 
 /**
@@ -268,6 +274,9 @@ export function buildPanelIVCurve(
     imppA: 0,
     iscShadedA: 0,
     panelsInSeries,
+    mppV: 0,
+    mppA: 0,
+    mppW: 0,
   };
 
   const irr = Math.max(0, poa.totalWm2);
@@ -313,14 +322,129 @@ export function buildPanelIVCurve(
     return pts;
   };
 
+  const shaded = buildPoints(iscShadedA, imppShadedA);
+  const mpp = findCurveMPP(shaded.length > 0 ? shaded : buildPoints(iscA, imppA));
+
   return {
     unshaded: buildPoints(iscA, imppA),
-    shaded: buildPoints(iscShadedA, imppShadedA),
+    shaded,
     vocV,
     iscA,
     vmppV,
     imppA,
     iscShadedA,
     panelsInSeries,
+    mppV: mpp.v,
+    mppA: mpp.i,
+    mppW: mpp.p,
+  };
+}
+
+function findCurveMPP(points: IVPoint[]): IVPoint {
+  return points.reduce<IVPoint>((best, point) => (point.p > best.p ? point : best), { v: 0, i: 0, p: 0 });
+}
+
+function currentAtVoltage(points: IVPoint[], voltage: number): number {
+  if (points.length === 0) return 0;
+  const sorted = points.slice().sort((a, b) => a.v - b.v);
+  if (voltage <= sorted[0].v) return sorted[0].i;
+  if (voltage >= sorted[sorted.length - 1].v) return 0;
+  for (let index = 0; index < sorted.length - 1; index++) {
+    const left = sorted[index];
+    const right = sorted[index + 1];
+    if (voltage >= left.v && voltage <= right.v) {
+      const fraction = (voltage - left.v) / Math.max(1e-9, right.v - left.v);
+      return left.i + fraction * (right.i - left.i);
+    }
+  }
+  return 0;
+}
+
+function voltageAtCurrent(points: IVPoint[], current: number): number {
+  if (points.length === 0) return 0;
+  const sorted = points.slice().sort((a, b) => b.i - a.i);
+  if (current >= sorted[0].i) return sorted[0].v;
+  if (current <= sorted[sorted.length - 1].i) return sorted[sorted.length - 1].v;
+  for (let index = 0; index < sorted.length - 1; index++) {
+    const high = sorted[index];
+    const low = sorted[index + 1];
+    if (current <= high.i && current >= low.i) {
+      const fraction = (high.i - current) / Math.max(1e-9, high.i - low.i);
+      return high.v + fraction * (low.v - high.v);
+    }
+  }
+  return 0;
+}
+
+function seriesCurve(curves: IVPoint[][], pointCount: number): IVPoint[] {
+  const usable = curves.filter((curve) => curve.length > 0);
+  if (usable.length === 0) return [];
+  const maxCurrent = Math.min(...usable.map((curve) => curve[0].i));
+  const points: IVPoint[] = [];
+  for (let step = pointCount; step >= 0; step--) {
+    const i = (step / pointCount) * maxCurrent;
+    const v = usable.reduce((sum, curve) => sum + voltageAtCurrent(curve, i), 0);
+    points.push({ v, i, p: v * i });
+  }
+  return points.sort((a, b) => a.v - b.v);
+}
+
+function parallelCurve(curves: IVPoint[][], pointCount: number): IVPoint[] {
+  const usable = curves.filter((curve) => curve.length > 0);
+  if (usable.length === 0) return [];
+  const maxVoltage = Math.min(...usable.map((curve) => curve[curve.length - 1].v));
+  const points: IVPoint[] = [];
+  for (let step = 0; step <= pointCount; step++) {
+    const v = (step / pointCount) * maxVoltage;
+    const i = usable.reduce((sum, curve) => sum + currentAtVoltage(curve, v), 0);
+    points.push({ v, i, p: v * i });
+  }
+  return points;
+}
+
+export function buildMPPTIVCurve(
+  project: Project,
+  inverterId: string,
+  mpptId: string,
+  arrayInputs: Map<string, { poa: PlaneOfArrayIrradiance; shadeFactor: number }>,
+  ambientC: number,
+  windSpeedMs: number,
+  pointCount = 80,
+): IVCurveResult | null {
+  const panelTypes = new Map(project.pv.panelTypes.map((panelType) => [panelType.id, panelType]));
+  const arrays = new Map(project.pv.arrays.map((array) => [array.id, array]));
+  const wiring = project.electrical.wiring.find((item) => item.inverterId === inverterId && item.mpptId === mpptId);
+  if (!wiring || wiring.strings.length === 0) return null;
+
+  const buildStringCurves = (shadeOverride?: number): IVPoint[][] =>
+    wiring.strings.flatMap((string) => {
+      const panelCurves = string.panels.flatMap((panelRef) => {
+        const array = arrays.get(panelRef.arrayId);
+        const panelType = array ? panelTypes.get(array.panelTypeId) : undefined;
+        const input = arrayInputs.get(panelRef.arrayId);
+        if (!panelType || !input) return [];
+        const shadeFactor = shadeOverride ?? input.shadeFactor;
+        return [buildPanelIVCurve(panelType, input.poa, shadeFactor, ambientC, windSpeedMs, 1, pointCount).shaded];
+      });
+      const curve = seriesCurve(panelCurves, pointCount);
+      return curve.length > 0 ? [curve] : [];
+    });
+
+  const unshaded = parallelCurve(buildStringCurves(0), pointCount);
+  const shaded = parallelCurve(buildStringCurves(), pointCount);
+  if (unshaded.length === 0 || shaded.length === 0) return null;
+  const mpp = findCurveMPP(shaded);
+  return {
+    unshaded,
+    shaded,
+    vocV: unshaded[unshaded.length - 1].v,
+    iscA: unshaded[0].i,
+    vmppV: findCurveMPP(unshaded).v,
+    imppA: findCurveMPP(unshaded).i,
+    iscShadedA: shaded[0].i,
+    panelsInSeries: 0,
+    mppV: mpp.v,
+    mppA: mpp.i,
+    mppW: mpp.p,
   };
 }

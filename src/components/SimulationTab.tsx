@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 import { runAnnualSimulation, type AnnualSimulationResult } from '../simulation/annualSimulation';
 import { calculatePlaneOfArrayIrradiance } from '../simulation/irradiance';
-import { buildPanelIVCurve, type IVCurveResult } from '../simulation/pvPerformance';
+import { buildMPPTIVCurve, type IVCurveResult } from '../simulation/pvPerformance';
 import { estimateArrayShadeFactors, buildShadowFeatureCollection } from '../simulation/shading';
 import { calculateSolarPosition } from '../simulation/solarPosition';
 import { normalizeWeather } from '../simulation/weather';
@@ -85,10 +85,10 @@ function MonthlyCashflowChart({ values }: { values: number[] }) {
 
 interface IVPVChartProps {
   curve: IVCurveResult;
-  arrayName: string;
+  label: string;
 }
 
-function IVPVChart({ curve, arrayName }: IVPVChartProps) {
+function IVPVChart({ curve, label }: IVPVChartProps) {
   if (curve.unshaded.length === 0) return null;
 
   const W = 320;
@@ -118,9 +118,9 @@ function IVPVChart({ curve, arrayName }: IVPVChartProps) {
   const hasShadedCurve = curve.iscShadedA < curve.iscA * 0.999 && curve.shaded.length > 0;
 
   return (
-    <figure className="iv-pv-chart" aria-label={`I–V / P–V curve ${arrayName}`}>
+    <figure className="iv-pv-chart" aria-label={`I–V / P–V curve ${label}`}>
       <figcaption className="iv-pv-chart__caption">
-        {arrayName} — I–V &amp; P–V curves (
+        {label} — I–V &amp; P–V curves (
         {hasShadedCurve ? (
           <>
             <span className="iv-pv-chart__legend-unshaded">▬</span> onbeschaduwd &nbsp;
@@ -131,14 +131,14 @@ function IVPVChart({ curve, arrayName }: IVPVChartProps) {
         )}
         ){' '}
         <small>
-          Voc {curve.vocV.toFixed(0)} V · Isc {curve.iscA.toFixed(1)} A · Vmpp {curve.vmppV.toFixed(0)} V
+          MPP {curve.mppW.toFixed(0)} W · {curve.mppV.toFixed(0)} V · {curve.mppA.toFixed(1)} A
         </small>
       </figcaption>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="iv-pv-chart__svg"
         role="img"
-        aria-label={`I–V en P–V curve voor ${arrayName}`}
+        aria-label={`I–V en P–V curve voor ${label}`}
       >
         {/* Grid lines */}
         {ticksV.map((t) => (
@@ -244,18 +244,37 @@ export function SimulationTab() {
   const arrayResults = project.pv.arrays.map((array) => {
     const irradiance = calculatePlaneOfArrayIrradiance(weather, solar, array);
     const shadeFactor = shadeResults.find((item) => item.arrayId === array.id)?.shadeFactor ?? 0;
-    const panelType = project.pv.panelTypes.find((pt) => pt.id === array.panelTypeId);
-    const ivCurve = panelType
-      ? buildPanelIVCurve(panelType, irradiance, shadeFactor, weather.temperatureC, weather.windSpeedMs)
-      : null;
     return {
       array,
       irradiance,
       shadeFactor,
       effectiveWm2: irradiance.totalWm2 * (1 - shadeFactor),
-      ivCurve,
     };
   });
+
+  const arrayInputs = new Map(
+    arrayResults.map((result) => [
+      result.array.id,
+      {
+        poa: result.irradiance,
+        shadeFactor: result.shadeFactor,
+      },
+    ]),
+  );
+  const mpptCurveResults = project.electrical.inverters.flatMap((inverter) =>
+    inverter.mppts.flatMap((mppt) => {
+      const curve = buildMPPTIVCurve(project, inverter.id, mppt.id, arrayInputs, weather.temperatureC, weather.windSpeedMs);
+      return curve && curve.unshaded.length > 0
+        ? [
+            {
+              id: `${inverter.id}:${mppt.id}`,
+              label: `${inverter.name} · ${mppt.name}`,
+              curve,
+            },
+          ]
+        : [];
+    }),
+  );
 
   const updateDate = (dateValue: string) => {
     setTimestamp(timestampFromDateAndMinutes(dateValue, selectedMinute));
@@ -359,20 +378,18 @@ export function SimulationTab() {
           <p className="empty-state">Voeg PV arrays toe om POA-instraling en schaduwfactoren te zien.</p>
         )}
 
-        <h3>I–V &amp; P–V curves</h3>
-        {arrayResults.some((r) => r.ivCurve && r.ivCurve.unshaded.length > 0) ? (
+        <h3>MPPT I–V &amp; P–V curves</h3>
+        {mpptCurveResults.length > 0 ? (
           <div className="iv-pv-chart-grid">
-            {arrayResults.map((result) =>
-              result.ivCurve && result.ivCurve.unshaded.length > 0 ? (
-                <IVPVChart key={result.array.id} curve={result.ivCurve} arrayName={result.array.name} />
-              ) : null,
-            )}
+            {mpptCurveResults.map((result) => (
+              <IVPVChart key={result.id} curve={result.curve} label={result.label} />
+            ))}
           </div>
         ) : (
           <p className="empty-state">
             {solar.elevationDeg <= 0
               ? 'Zon staat onder de horizon – geen instraling.'
-              : 'Voeg PV arrays met paneeltype toe om de curves te tonen.'}
+              : 'Voeg bekabelde MPPT-strings toe om de curves te tonen.'}
           </p>
         )}
       </section>

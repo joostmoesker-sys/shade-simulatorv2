@@ -1,5 +1,6 @@
 import type { Battery, ElectricVehicleProfile, LoadProfile, Project, TariffProfile } from '../model/schema';
 import type { HourlyWeatherSample } from './weather';
+import { NL_DAY_AHEAD_PRICE_2025_EUR_MWH } from './nlDayAheadPrices2025';
 
 const SOC_STEPS = 96;
 const TERMINAL_PENALTY_EUR_PER_KWH = 1000;
@@ -7,66 +8,9 @@ const EPSILON_KWH = 1e-7;
 const TARGET_SOC_FRACTION = 0.5;
 const DEFAULT_GRID_EXPORT_KW = 17;
 
-// 2025 NL EPEX Spot / ENTSO-E day-ahead actual monthly average prices (EUR/MWh).
-// Source: ENTSO-E Transparency Platform, Netherlands bidding zone (BZN|NL), 2025 historical data.
-// These are real observed wholesale market prices; they do not include taxes or grid fees.
-const NL_MONTHLY_AVG_EUR_MWH_2025 = [
-  105.26, // Jan – cold winter, high gas demand
-  121.56, // Feb – peak winter prices
-   88.61, // Mar
-   74.46, // Apr
-   61.36, // May
-   67.84, // Jun
-   83.21, // Jul
-   73.26, // Aug
-   73.82, // Sep
-   39.91, // Oct
-    7.41, // Nov – unusually low (mild weather + renewables surplus)
-   64.19, // Dec
-] as const;
-
-// Intra-day shape profiles (dimensionless) per calendar month (0=Jan … 11=Dec).
-// Calibrated from observed 2025 NL EPEX Spot daily price patterns:
-//   - Winter: pronounced double peak (morning 7–8h, evening 18–20h).
-//   - Summer: near-zero midday (10–14h) due to solar PV overproduction.
-//   - November: near-flat at very low absolute level.
-// Weekend prices are typically ~10% lower; applied in generateEconomicTariffs().
-const NL_INTRADAY_SHAPE_2025 = [
-  // Jan – winter double peak
-  [0.62, 0.56, 0.52, 0.50, 0.52, 0.68, 1.03, 1.39, 1.36, 1.16, 1.03, 0.96, 0.93, 0.91, 0.93, 1.06, 1.27, 1.54, 1.60, 1.47, 1.30, 1.10, 0.89, 0.73],
-  // Feb – peak winter
-  [0.60, 0.54, 0.51, 0.49, 0.51, 0.66, 1.01, 1.41, 1.39, 1.19, 1.06, 0.98, 0.95, 0.93, 0.95, 1.08, 1.30, 1.58, 1.64, 1.51, 1.33, 1.13, 0.92, 0.75],
-  // Mar – transitional
-  [0.64, 0.58, 0.54, 0.52, 0.55, 0.72, 0.95, 1.22, 1.16, 0.98, 0.82, 0.74, 0.70, 0.68, 0.74, 0.94, 1.20, 1.45, 1.54, 1.44, 1.26, 1.06, 0.88, 0.72],
-  // Apr – spring, solar midday dip developing
-  [0.66, 0.59, 0.55, 0.53, 0.56, 0.74, 0.96, 1.18, 1.08, 0.88, 0.70, 0.60, 0.56, 0.54, 0.60, 0.82, 1.12, 1.42, 1.52, 1.42, 1.22, 1.02, 0.86, 0.72],
-  // May – solar strongly drives midday prices near zero
-  [0.68, 0.60, 0.56, 0.54, 0.57, 0.76, 0.98, 1.12, 0.96, 0.74, 0.54, 0.44, 0.40, 0.40, 0.50, 0.76, 1.08, 1.44, 1.56, 1.46, 1.26, 1.06, 0.88, 0.74],
-  // Jun – summer, near-zero midday prices (solar surplus)
-  [0.74, 0.66, 0.62, 0.60, 0.64, 0.82, 0.96, 0.90, 0.70, 0.44, 0.22, 0.10, 0.06, 0.06, 0.16, 0.50, 0.98, 1.50, 1.72, 1.62, 1.46, 1.24, 1.04, 0.90],
-  // Jul – peak summer, strong evening peak
-  [0.72, 0.64, 0.60, 0.58, 0.62, 0.80, 0.94, 0.88, 0.68, 0.42, 0.20, 0.08, 0.04, 0.04, 0.14, 0.48, 0.96, 1.52, 1.74, 1.64, 1.48, 1.26, 1.06, 0.92],
-  // Aug – late summer
-  [0.73, 0.65, 0.61, 0.59, 0.63, 0.81, 0.95, 0.90, 0.72, 0.48, 0.26, 0.12, 0.07, 0.07, 0.17, 0.52, 1.00, 1.52, 1.73, 1.63, 1.46, 1.24, 1.04, 0.90],
-  // Sep – early autumn, moderate solar effect
-  [0.68, 0.60, 0.56, 0.54, 0.57, 0.76, 0.96, 1.10, 1.04, 0.90, 0.76, 0.66, 0.62, 0.60, 0.66, 0.86, 1.14, 1.44, 1.54, 1.44, 1.26, 1.06, 0.88, 0.74],
-  // Oct – autumn
-  [0.68, 0.62, 0.58, 0.56, 0.58, 0.74, 0.94, 1.14, 1.10, 0.97, 0.84, 0.77, 0.74, 0.72, 0.77, 0.94, 1.20, 1.47, 1.57, 1.47, 1.30, 1.10, 0.92, 0.76],
-  // Nov – near-zero average; shape retained but absolute values are tiny
-  [0.72, 0.66, 0.62, 0.60, 0.62, 0.78, 0.98, 1.14, 1.10, 1.00, 0.90, 0.84, 0.80, 0.78, 0.80, 0.92, 1.12, 1.38, 1.48, 1.40, 1.24, 1.06, 0.92, 0.80],
-  // Dec – return to winter
-  [0.61, 0.55, 0.51, 0.49, 0.51, 0.67, 1.01, 1.37, 1.34, 1.14, 1.01, 0.94, 0.91, 0.89, 0.91, 1.04, 1.24, 1.51, 1.57, 1.44, 1.27, 1.07, 0.87, 0.71],
-] as const;
-
-// Pre-compute hour × month reference prices (EUR/kWh) from the real 2025 NL data.
-// Each row is normalised so its mean equals the actual monthly average.
-const NL_DAY_AHEAD_2025_EUR_KWH: ReadonlyArray<ReadonlyArray<number>> = NL_INTRADAY_SHAPE_2025.map(
-  (shape, month) => {
-    const shapeSum = (shape as readonly number[]).reduce((a, b) => a + b, 0);
-    const avgEurKwh = NL_MONTHLY_AVG_EUR_MWH_2025[month] / 1000;
-    return (shape as readonly number[]).map((s) => Math.max(0, (s / shapeSum) * 24 * avgEurKwh));
-  },
-);
+const RAW_PRICE_YEAR = 2025;
+const RAW_PRICE_START_MS = Date.UTC(RAW_PRICE_YEAR, 0, 1);
+const HOURS_PER_YEAR = 8760;
 
 export interface EconomicSimulationResult {
   version: 'v4-euro-optimizer';
@@ -114,6 +58,14 @@ function dayOfYear(date: Date): number {
       Date.UTC(date.getUTCFullYear(), 0, 0)) /
       86_400_000,
   );
+}
+
+export function rawDayAheadPriceEurPerKwh(timestamp: string): number | null {
+  const ms = Date.parse(timestamp);
+  if (!Number.isFinite(ms)) return null;
+  const index = Math.floor((ms - RAW_PRICE_START_MS) / 3_600_000);
+  if (index < 0 || index >= HOURS_PER_YEAR) return null;
+  return NL_DAY_AHEAD_PRICE_2025_EUR_MWH[index] / 1000;
 }
 
 function normalizedShape(shape: LoadProfile['shape']): number[] {
@@ -202,13 +154,12 @@ export function generateEconomicTariffs(samples: HourlyWeatherSample[], tariff?:
   for (const sample of samples) {
     const date = new Date(sample.timestamp);
     if (!tariff || tariff.dynamic) {
-      const month = date.getUTCMonth();
-      const hour = date.getUTCHours();
-      // Weekends typically ~10% lower than weekdays in 2025 NL day-ahead market.
-      const weekendFactor = date.getUTCDay() === 0 || date.getUTCDay() === 6 ? 0.90 : 1.0;
-      const apx = NL_DAY_AHEAD_2025_EUR_KWH[month][hour] * weekendFactor;
-      buy.push(apx + (tariff?.energyTaxEurPerKwh ?? 0.1316) + 0.04);
-      sell.push(apx + (tariff?.staticExportEurPerKwh ?? 0));
+      const apx = rawDayAheadPriceEurPerKwh(sample.timestamp);
+      if (apx === null) {
+        throw new Error(`Geen ruwe 2025 NL day-ahead prijs beschikbaar voor ${sample.timestamp}`);
+      }
+      buy.push(apx + (tariff?.energyTaxEurPerKwh ?? 0.1316) + (tariff?.importMarkupEurPerKwh ?? 0.03));
+      sell.push(apx + (tariff?.exportMarkupEurPerKwh ?? 0));
     } else {
       buy.push(tariff.staticImportEurPerKwh + tariff.energyTaxEurPerKwh);
       sell.push(tariff.staticExportEurPerKwh);

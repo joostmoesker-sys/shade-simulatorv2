@@ -849,6 +849,8 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
         staticImportEurPerKwh: input.staticImportEurPerKwh ?? 0.3,
         staticExportEurPerKwh: input.staticExportEurPerKwh ?? 0.05,
         energyTaxEurPerKwh: input.energyTaxEurPerKwh ?? 0.1316,
+        importMarkupEurPerKwh: input.importMarkupEurPerKwh ?? 0.03,
+        exportMarkupEurPerKwh: input.exportMarkupEurPerKwh ?? 0,
       });
       return {
         project: bumpProject({ ...state.project, tariffs: [...state.project.tariffs, created] }),
