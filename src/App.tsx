@@ -3,6 +3,7 @@ import { InvertersTab } from './components/InvertersTab';
 import { ObjectsTab } from './components/ObjectsTab';
 import { PVArraysTab } from './components/PVArraysTab';
 import { ProjectFileActions } from './components/ProjectFileActions';
+import { SimulationTab } from './components/SimulationTab';
 import { WiringTab } from './components/WiringTab';
 import { ProjectMap } from './map/ProjectMap';
 import { PROJECT_TABS, useProjectStore } from './store/projectStore';
@@ -41,11 +42,13 @@ export function App() {
           {activeTab === 'pv-arrays' && <PVArraysTab />}
           {activeTab === 'inverters' && <InvertersTab />}
           {activeTab === 'bekabeling' && <WiringTab />}
+          {activeTab === 'simulatie' && <SimulationTab />}
           {activeTab !== 'locatie' &&
             activeTab !== 'objecten' &&
             activeTab !== 'pv-arrays' &&
             activeTab !== 'inverters' &&
-            activeTab !== 'bekabeling' && (
+            activeTab !== 'bekabeling' &&
+            activeTab !== 'simulatie' && (
               <div className="placeholder">
                 <h2>{PROJECT_TABS.find((t) => t.id === activeTab)?.label}</h2>
                 <p>Deze stap wordt geïmplementeerd in een latere fase.</p>

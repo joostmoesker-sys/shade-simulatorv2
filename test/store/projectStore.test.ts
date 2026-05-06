@@ -13,6 +13,7 @@ describe('projectStore', () => {
       selectedSceneObjectId: null,
       selectedPVArrayId: null,
       objectMapAddKind: null,
+      simulationPreviewTimestamp: '2026-06-21T12:00:00.000Z',
     });
   });
 
@@ -23,6 +24,12 @@ describe('projectStore', () => {
   it('switches the active tab', () => {
     useProjectStore.getState().setActiveTab('pv-arrays');
     expect(useProjectStore.getState().activeTab).toBe('pv-arrays');
+  });
+
+  it('updates the simulation preview timestamp', () => {
+    useProjectStore.getState().setSimulationPreviewTimestamp('2026-03-21T09:30:00.000Z');
+
+    expect(useProjectStore.getState().simulationPreviewTimestamp).toBe('2026-03-21T09:30:00.000Z');
   });
 
   it('orders inverters before wiring in the workflow', () => {

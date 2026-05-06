@@ -102,10 +102,12 @@ interface ProjectStoreState {
   selectedSceneObjectId: string | null;
   selectedPVArrayId: string | null;
   objectMapAddKind: 'tree' | 'building' | null;
+  simulationPreviewTimestamp: string;
   setActiveTab: (tab: ProjectTab) => void;
   setSelectedSceneObjectId: (id: string | null) => void;
   setSelectedPVArrayId: (id: string | null) => void;
   setObjectMapAddKind: (kind: 'tree' | 'building' | null) => void;
+  setSimulationPreviewTimestamp: (timestamp: string) => void;
   setLocation: (location: Location) => void;
   ensureDefaultPanelType: () => string;
   addSceneObject: (input: AddSceneObjectInput) => SceneObject;
@@ -180,10 +182,12 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
   selectedSceneObjectId: null,
   selectedPVArrayId: null,
   objectMapAddKind: null,
+  simulationPreviewTimestamp: '2026-06-21T12:00:00.000Z',
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSelectedSceneObjectId: (id) => set({ selectedSceneObjectId: id }),
   setSelectedPVArrayId: (id) => set({ selectedPVArrayId: id }),
   setObjectMapAddKind: (kind) => set({ objectMapAddKind: kind }),
+  setSimulationPreviewTimestamp: (timestamp) => set({ simulationPreviewTimestamp: timestamp }),
   setLocation: (location) =>
     set((state) => ({
       project: bumpProject({
