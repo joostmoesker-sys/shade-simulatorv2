@@ -40,6 +40,7 @@ export const PROJECT_TABS: { id: ProjectTab; label: string }[] = [
   { id: 'locatie', label: 'Locatie' },
   { id: 'objecten', label: 'Objecten' },
   { id: 'pv-arrays', label: 'PV Arrays' },
+  // Inverters must exist before wiring strings can be assigned to MPPTs.
   { id: 'inverters', label: 'Inverters' },
   { id: 'bekabeling', label: 'Bekabeling' },
   { id: 'accu-verbruik', label: 'Accu & Verbruik' },
