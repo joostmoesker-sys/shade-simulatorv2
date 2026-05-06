@@ -5,6 +5,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { isInsideNetherlands } from '../location/geocode';
 import { sceneObjectKindLabel } from '../model/sceneObjectLabels';
 import type { BuildingObject, LatLon, PanelType, PVArray, SceneObject } from '../model/schema';
+import { buildShadowFeatureCollection } from '../simulation/shading';
+import { calculateSolarPosition } from '../simulation/solarPosition';
 import { useProjectStore } from '../store/projectStore';
 import { buildOsmRasterStyle, type MapBaseLayer } from './osmStyle';
 import { arrayFootprintRing, bearing, getArrayDimensions, METERS_PER_DEG_LAT, offsetPoint } from './pvArrayGeometry';
@@ -107,6 +109,7 @@ export function ProjectMap() {
   const selectedSceneObjectId = useProjectStore((s) => s.selectedSceneObjectId);
   const selectedPVArrayId = useProjectStore((s) => s.selectedPVArrayId);
   const objectMapAddKind = useProjectStore((s) => s.objectMapAddKind);
+  const simulationPreviewTimestamp = useProjectStore((s) => s.simulationPreviewTimestamp);
   const setLocation = useProjectStore((s) => s.setLocation);
   const addSceneObject = useProjectStore((s) => s.addSceneObject);
   const updateSceneObject = useProjectStore((s) => s.updateSceneObject);
@@ -149,6 +152,25 @@ export function ProjectMap() {
       map.addSource('pv-arrays', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addSource('shade-shadows', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'shade-shadows-fill',
+        type: 'fill',
+        source: 'shade-shadows',
+        paint: {
+          'fill-color': '#1a1a1a',
+          'fill-opacity': ['get', 'opacity'],
+        },
+      });
+      map.addLayer({
+        id: 'shade-shadows-outline',
+        type: 'line',
+        source: 'shade-shadows',
+        paint: { 'line-color': '#1a1a1a', 'line-width': 1, 'line-opacity': 0.35 },
       });
       map.addLayer({
         id: 'pv-arrays-fill',
@@ -305,7 +327,20 @@ export function ProjectMap() {
         GeoJSONSource['setData']
       >[0],
     );
-  }, [project.pv.arrays, project.pv.panelTypes, project.scene.objects, mapLoaded]);
+    const solar = calculateSolarPosition(new Date(simulationPreviewTimestamp), project.location);
+    (map.getSource('shade-shadows') as GeoJSONSource).setData(
+      buildShadowFeatureCollection(project.scene.objects, solar, { timestamp: simulationPreviewTimestamp }) as unknown as Parameters<
+        GeoJSONSource['setData']
+      >[0],
+    );
+  }, [
+    project.location,
+    project.pv.arrays,
+    project.pv.panelTypes,
+    project.scene.objects,
+    simulationPreviewTimestamp,
+    mapLoaded,
+  ]);
 
   useEffect(() => {
     const map = mapRef.current;

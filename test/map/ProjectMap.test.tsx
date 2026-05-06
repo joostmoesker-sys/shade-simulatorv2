@@ -92,6 +92,7 @@ describe('<ProjectMap>', () => {
       selectedSceneObjectId: null,
       selectedPVArrayId: null,
       objectMapAddKind: null,
+      simulationPreviewTimestamp: '2026-06-21T12:00:00.000Z',
     });
   });
 
@@ -117,6 +118,20 @@ describe('<ProjectMap>', () => {
     expect(useProjectStore.getState().project.scene.objects[0]).toMatchObject({
       kind: 'tree',
       position: { lat: 52.01, lon: 5.01 },
+    });
+  });
+
+  it('adds a dynamic shade overlay source and layers', async () => {
+    render(<ProjectMap />);
+
+    await waitFor(() => {
+      expect(FakeMap.instances[0].addSource).toHaveBeenCalledWith(
+        'shade-shadows',
+        expect.objectContaining({ type: 'geojson' }),
+      );
+      expect(FakeMap.instances[0].addLayer).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'shade-shadows-fill', source: 'shade-shadows' }),
+      );
     });
   });
 });

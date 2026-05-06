@@ -271,6 +271,26 @@ export const HeatPumpProfileSchema = z.object({
 });
 export type HeatPumpProfile = z.infer<typeof HeatPumpProfileSchema>;
 
+export const ElectricVehicleProfileSchema = z.object({
+  id: IdSchema,
+  name: z.string().default('Elektrische auto'),
+  /** Usable vehicle battery capacity. Typical mid-range EVs are around 60 kWh. */
+  batteryCapacityKwh: Positive.default(60),
+  /** Charging power available at home or work. */
+  chargePowerKw: Positive.default(11),
+  /** Average driven energy that must be recharged on weekdays. */
+  weekdayUseKwh: NonNegative.default(6),
+  /** Average driven energy that must be recharged on weekend days. */
+  weekendUseKwh: NonNegative.default(8),
+  /** First preferred charging hour, local clock. */
+  chargeStartHour: z.number().int().min(0).max(23).default(18),
+  /** Last preferred charging hour, local clock. */
+  chargeEndHour: z.number().int().min(0).max(23).default(7),
+  /** Flexible EV demand may be shifted inside the preferred charge window. */
+  flexible: z.boolean().default(true),
+});
+export type ElectricVehicleProfile = z.infer<typeof ElectricVehicleProfileSchema>;
+
 export const TariffProfileSchema = z.object({
   id: IdSchema,
   name: z.string().default(''),
@@ -316,6 +336,7 @@ export const ProjectSchema = z.object({
   loads: z.object({
     base: z.array(LoadProfileSchema).default([]),
     heatPumps: z.array(HeatPumpProfileSchema).default([]),
+    electricVehicles: z.array(ElectricVehicleProfileSchema).default([]),
   }),
   tariffs: z.array(TariffProfileSchema).default([]),
 });

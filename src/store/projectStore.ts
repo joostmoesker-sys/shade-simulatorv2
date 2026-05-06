@@ -7,20 +7,32 @@ import { create } from 'zustand';
 import { createProject, generateId } from '../model/project';
 import {
   BuildingObjectSchema,
+  BatterySchema,
+  ElectricVehicleProfileSchema,
+  HeatPumpProfileSchema,
   InverterSchema,
+  LoadProfileSchema,
   MPPTSchema,
   PanelTypeSchema,
   PVArraySchema,
+  TariffProfileSchema,
   TreeObjectSchema,
+  type Battery,
   type BuildingObject,
+  type ElectricVehicleProfile,
+  type HeatPumpProfile,
   type Inverter,
   type Location,
+  type LoadProfile,
   type MPPT,
+  type MPPTWiring,
   type PanelType,
   type Project,
   type PVArray,
   type SceneObject,
+  type TariffProfile,
   type TreeObject,
+  type WiringString,
 } from '../model/schema';
 import { NL_DEFAULT_CENTER } from '../location/geocode';
 
@@ -38,14 +50,19 @@ export const PROJECT_TABS: { id: ProjectTab; label: string }[] = [
   { id: 'locatie', label: 'Locatie' },
   { id: 'objecten', label: 'Objecten' },
   { id: 'pv-arrays', label: 'PV Arrays' },
-  { id: 'bekabeling', label: 'Bekabeling' },
+  // Inverters must exist before wiring strings can be assigned to MPPTs.
   { id: 'inverters', label: 'Inverters' },
+  { id: 'bekabeling', label: 'Bekabeling' },
   { id: 'accu-verbruik', label: 'Accu & Verbruik' },
   { id: 'simulatie', label: 'Simulatie' },
   { id: 'resultaten', label: 'Resultaten' },
 ];
 
 export const DEFAULT_PANEL_TYPE_ID = 'panel_default_400w';
+
+export function createDefaultSimulationPreviewTimestamp(now = new Date()): string {
+  return now.toISOString();
+}
 
 const DEFAULT_PANEL_TYPE: PanelType = PanelTypeSchema.parse({
   id: DEFAULT_PANEL_TYPE_ID,
@@ -93,6 +110,11 @@ export type AddInverterInput = Partial<Omit<Inverter, 'id' | 'mppts'>> & {
   mppts?: Partial<Omit<MPPT, 'id'>>[];
 };
 export type AddMPPTInput = Partial<Omit<MPPT, 'id'>>;
+export type AddBatteryInput = Partial<Omit<Battery, 'id'>>;
+export type AddLoadProfileInput = Partial<Omit<LoadProfile, 'id'>>;
+export type AddHeatPumpInput = Partial<Omit<HeatPumpProfile, 'id'>>;
+export type AddElectricVehicleInput = Partial<Omit<ElectricVehicleProfile, 'id'>>;
+export type AddTariffInput = Partial<Omit<TariffProfile, 'id'>>;
 
 interface ProjectStoreState {
   project: Project;
@@ -100,10 +122,12 @@ interface ProjectStoreState {
   selectedSceneObjectId: string | null;
   selectedPVArrayId: string | null;
   objectMapAddKind: 'tree' | 'building' | null;
+  simulationPreviewTimestamp: string;
   setActiveTab: (tab: ProjectTab) => void;
   setSelectedSceneObjectId: (id: string | null) => void;
   setSelectedPVArrayId: (id: string | null) => void;
   setObjectMapAddKind: (kind: 'tree' | 'building' | null) => void;
+  setSimulationPreviewTimestamp: (timestamp: string) => void;
   setLocation: (location: Location) => void;
   ensureDefaultPanelType: () => string;
   addSceneObject: (input: AddSceneObjectInput) => SceneObject;
@@ -121,6 +145,27 @@ interface ProjectStoreState {
   addMPPT: (inverterId: string, input?: AddMPPTInput) => MPPT;
   updateMPPT: (inverterId: string, mpptId: string, patch: Partial<MPPT>) => void;
   removeMPPT: (inverterId: string, mpptId: string) => void;
+  addWiringString: (
+    inverterId: string,
+    mpptId: string,
+    panels: WiringString['panels'],
+  ) => WiringString;
+  removeWiringString: (inverterId: string, mpptId: string, stringId: string) => void;
+  addBattery: (input?: AddBatteryInput) => Battery;
+  updateBattery: (id: string, patch: Partial<Battery>) => void;
+  removeBattery: (id: string) => void;
+  addLoadProfile: (input?: AddLoadProfileInput) => LoadProfile;
+  updateLoadProfile: (id: string, patch: Partial<LoadProfile>) => void;
+  removeLoadProfile: (id: string) => void;
+  addHeatPump: (input?: AddHeatPumpInput) => HeatPumpProfile;
+  updateHeatPump: (id: string, patch: Partial<HeatPumpProfile>) => void;
+  removeHeatPump: (id: string) => void;
+  addElectricVehicle: (input?: AddElectricVehicleInput) => ElectricVehicleProfile;
+  updateElectricVehicle: (id: string, patch: Partial<ElectricVehicleProfile>) => void;
+  removeElectricVehicle: (id: string) => void;
+  addTariff: (input?: AddTariffInput) => TariffProfile;
+  updateTariff: (id: string, patch: Partial<TariffProfile>) => void;
+  removeTariff: (id: string) => void;
   replaceProject: (project: Project) => void;
 }
 
@@ -155,16 +200,29 @@ function nextSelectedIdAfterRemoval<T extends { id: string }>(
   return items.find((item) => item.id !== removedId)?.id ?? null;
 }
 
+function ensureMPPTWiring(
+  wiring: MPPTWiring[],
+  inverterId: string,
+  mpptId: string,
+): MPPTWiring[] {
+  if (wiring.some((item) => item.inverterId === inverterId && item.mpptId === mpptId)) {
+    return wiring;
+  }
+  return [...wiring, { inverterId, mpptId, strings: [] }];
+}
+
 export const useProjectStore = create<ProjectStoreState>((set) => ({
   project: createProject({ name: 'Nieuw project', location: initialLocation }),
   activeTab: 'locatie',
   selectedSceneObjectId: null,
   selectedPVArrayId: null,
   objectMapAddKind: null,
+  simulationPreviewTimestamp: createDefaultSimulationPreviewTimestamp(),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSelectedSceneObjectId: (id) => set({ selectedSceneObjectId: id }),
   setSelectedPVArrayId: (id) => set({ selectedPVArrayId: id }),
   setObjectMapAddKind: (kind) => set({ objectMapAddKind: kind }),
+  setSimulationPreviewTimestamp: (timestamp) => set({ simulationPreviewTimestamp: timestamp }),
   setLocation: (location) =>
     set((state) => ({
       project: bumpProject({
@@ -386,6 +444,20 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
           ...state.project.pv,
           arrays: state.project.pv.arrays.filter((item) => item.id !== id),
         },
+        electrical: {
+          ...state.project.electrical,
+          wiring: state.project.electrical.wiring
+            .map((mpptWiring) => ({
+              ...mpptWiring,
+              strings: mpptWiring.strings
+                .map((string) => ({
+                  ...string,
+                  panels: string.panels.filter((panel) => panel.arrayId !== id),
+                }))
+                .filter((string) => string.panels.length > 0),
+            }))
+            .filter((mpptWiring) => mpptWiring.strings.length > 0),
+        },
       }),
       selectedPVArrayId:
         nextSelectedIdAfterRemoval(state.selectedPVArrayId, id, state.project.pv.arrays),
@@ -538,6 +610,269 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
         }),
       };
     }),
+  addWiringString: (inverterId, mpptId, panels) => {
+    let created: WiringString | null = null;
+    set((state) => {
+      const inverter = state.project.electrical.inverters.find((item) => item.id === inverterId);
+      const mppt = inverter?.mppts.find((item) => item.id === mpptId);
+      if (!inverter || !mppt || panels.length === 0) return state;
+      created = {
+        id: generateId('string'),
+        panels,
+      };
+      const wiring = ensureMPPTWiring(state.project.electrical.wiring, inverterId, mpptId);
+      return {
+        project: bumpProject({
+          ...state.project,
+          electrical: {
+            ...state.project.electrical,
+            wiring: wiring.map((item) =>
+              item.inverterId === inverterId && item.mpptId === mpptId
+                ? { ...item, strings: [...item.strings, created as WiringString] }
+                : item,
+            ),
+          },
+        }),
+      };
+    });
+    if (!created) throw new Error('Could not create wiring string');
+    return created;
+  },
+  removeWiringString: (inverterId, mpptId, stringId) =>
+    set((state) => ({
+      project: bumpProject({
+        ...state.project,
+        electrical: {
+          ...state.project.electrical,
+          wiring: state.project.electrical.wiring
+            .map((item) =>
+              item.inverterId === inverterId && item.mpptId === mpptId
+                ? { ...item, strings: item.strings.filter((string) => string.id !== stringId) }
+                : item,
+            )
+            .filter((item) => item.strings.length > 0),
+        },
+      }),
+    })),
+  addBattery: (input = {}) => {
+    let created: Battery | null = null;
+    set((state) => {
+      created = BatterySchema.parse({
+        id: generateId('battery'),
+        name: input.name ?? `Accu ${state.project.storage.batteries.length + 1}`,
+        capacityKwh: input.capacityKwh ?? 10,
+        pChargeMaxKw: input.pChargeMaxKw ?? 5,
+        pDischargeMaxKw: input.pDischargeMaxKw ?? 5,
+        roundTripEfficiency: input.roundTripEfficiency ?? 0.9,
+        socMin: input.socMin ?? 0.1,
+        socMax: input.socMax ?? 1,
+        standbyW: input.standbyW ?? 15,
+        allowGridCharge: input.allowGridCharge ?? false,
+        allowGridExport: input.allowGridExport ?? true,
+      });
+      return {
+        project: bumpProject({
+          ...state.project,
+          storage: { ...state.project.storage, batteries: [...state.project.storage.batteries, created] },
+        }),
+      };
+    });
+    if (!created) throw new Error('Could not create battery');
+    return created;
+  },
+  updateBattery: (id, patch) =>
+    set((state) => {
+      const current = state.project.storage.batteries.find((item) => item.id === id);
+      if (!current) return state;
+      const updated = BatterySchema.parse({ ...current, ...patch, id: current.id });
+      return {
+        project: bumpProject({
+          ...state.project,
+          storage: {
+            ...state.project.storage,
+            batteries: state.project.storage.batteries.map((item) => (item.id === id ? updated : item)),
+          },
+        }),
+      };
+    }),
+  removeBattery: (id) =>
+    set((state) => ({
+      project: bumpProject({
+        ...state.project,
+        storage: {
+          ...state.project.storage,
+          batteries: state.project.storage.batteries.filter((item) => item.id !== id),
+        },
+      }),
+    })),
+  addLoadProfile: (input = {}) => {
+    let created: LoadProfile | null = null;
+    set((state) => {
+      created = LoadProfileSchema.parse({
+        id: generateId('load'),
+        name: input.name ?? `Basisverbruik ${state.project.loads.base.length + 1}`,
+        annualKwh: input.annualKwh ?? 3500,
+        shape: input.shape ?? 'evening_peak',
+      });
+      return {
+        project: bumpProject({
+          ...state.project,
+          loads: { ...state.project.loads, base: [...state.project.loads.base, created] },
+        }),
+      };
+    });
+    if (!created) throw new Error('Could not create load profile');
+    return created;
+  },
+  updateLoadProfile: (id, patch) =>
+    set((state) => {
+      const current = state.project.loads.base.find((item) => item.id === id);
+      if (!current) return state;
+      const updated = LoadProfileSchema.parse({ ...current, ...patch, id: current.id });
+      return {
+        project: bumpProject({
+          ...state.project,
+          loads: {
+            ...state.project.loads,
+            base: state.project.loads.base.map((item) => (item.id === id ? updated : item)),
+          },
+        }),
+      };
+    }),
+  removeLoadProfile: (id) =>
+    set((state) => ({
+      project: bumpProject({
+        ...state.project,
+        loads: { ...state.project.loads, base: state.project.loads.base.filter((item) => item.id !== id) },
+      }),
+    })),
+  addHeatPump: (input = {}) => {
+    let created: HeatPumpProfile | null = null;
+    set((state) => {
+      created = HeatPumpProfileSchema.parse({
+        id: generateId('heatpump'),
+        name: input.name ?? `Warmtepomp ${state.project.loads.heatPumps.length + 1}`,
+        winterDayKwh: input.winterDayKwh ?? 12,
+        heatingBaseTempC: input.heatingBaseTempC ?? 15,
+      });
+      return {
+        project: bumpProject({
+          ...state.project,
+          loads: { ...state.project.loads, heatPumps: [...state.project.loads.heatPumps, created] },
+        }),
+      };
+    });
+    if (!created) throw new Error('Could not create heat pump profile');
+    return created;
+  },
+  updateHeatPump: (id, patch) =>
+    set((state) => {
+      const current = state.project.loads.heatPumps.find((item) => item.id === id);
+      if (!current) return state;
+      const updated = HeatPumpProfileSchema.parse({ ...current, ...patch, id: current.id });
+      return {
+        project: bumpProject({
+          ...state.project,
+          loads: {
+            ...state.project.loads,
+            heatPumps: state.project.loads.heatPumps.map((item) => (item.id === id ? updated : item)),
+          },
+        }),
+      };
+    }),
+  removeHeatPump: (id) =>
+    set((state) => ({
+      project: bumpProject({
+        ...state.project,
+        loads: { ...state.project.loads, heatPumps: state.project.loads.heatPumps.filter((item) => item.id !== id) },
+      }),
+    })),
+  addElectricVehicle: (input = {}) => {
+    let created: ElectricVehicleProfile | null = null;
+    set((state) => {
+      created = ElectricVehicleProfileSchema.parse({
+        id: generateId('ev'),
+        name: input.name ?? `Elektrische auto ${state.project.loads.electricVehicles.length + 1}`,
+        batteryCapacityKwh: input.batteryCapacityKwh ?? 60,
+        chargePowerKw: input.chargePowerKw ?? 11,
+        weekdayUseKwh: input.weekdayUseKwh ?? 6,
+        weekendUseKwh: input.weekendUseKwh ?? 8,
+        chargeStartHour: input.chargeStartHour ?? 18,
+        chargeEndHour: input.chargeEndHour ?? 7,
+        flexible: input.flexible ?? true,
+      });
+      return {
+        project: bumpProject({
+          ...state.project,
+          loads: {
+            ...state.project.loads,
+            electricVehicles: [...state.project.loads.electricVehicles, created],
+          },
+        }),
+      };
+    });
+    if (!created) throw new Error('Could not create EV profile');
+    return created;
+  },
+  updateElectricVehicle: (id, patch) =>
+    set((state) => {
+      const current = state.project.loads.electricVehicles.find((item) => item.id === id);
+      if (!current) return state;
+      const updated = ElectricVehicleProfileSchema.parse({ ...current, ...patch, id: current.id });
+      return {
+        project: bumpProject({
+          ...state.project,
+          loads: {
+            ...state.project.loads,
+            electricVehicles: state.project.loads.electricVehicles.map((item) => (item.id === id ? updated : item)),
+          },
+        }),
+      };
+    }),
+  removeElectricVehicle: (id) =>
+    set((state) => ({
+      project: bumpProject({
+        ...state.project,
+        loads: {
+          ...state.project.loads,
+          electricVehicles: state.project.loads.electricVehicles.filter((item) => item.id !== id),
+        },
+      }),
+    })),
+  addTariff: (input = {}) => {
+    let created: TariffProfile | null = null;
+    set((state) => {
+      created = TariffProfileSchema.parse({
+        id: generateId('tariff'),
+        name: input.name ?? `Tarief ${state.project.tariffs.length + 1}`,
+        dynamic: input.dynamic ?? true,
+        staticImportEurPerKwh: input.staticImportEurPerKwh ?? 0.3,
+        staticExportEurPerKwh: input.staticExportEurPerKwh ?? 0.05,
+        energyTaxEurPerKwh: input.energyTaxEurPerKwh ?? 0.1316,
+      });
+      return {
+        project: bumpProject({ ...state.project, tariffs: [...state.project.tariffs, created] }),
+      };
+    });
+    if (!created) throw new Error('Could not create tariff profile');
+    return created;
+  },
+  updateTariff: (id, patch) =>
+    set((state) => {
+      const current = state.project.tariffs.find((item) => item.id === id);
+      if (!current) return state;
+      const updated = TariffProfileSchema.parse({ ...current, ...patch, id: current.id });
+      return {
+        project: bumpProject({
+          ...state.project,
+          tariffs: state.project.tariffs.map((item) => (item.id === id ? updated : item)),
+        }),
+      };
+    }),
+  removeTariff: (id) =>
+    set((state) => ({
+      project: bumpProject({ ...state.project, tariffs: state.project.tariffs.filter((item) => item.id !== id) }),
+    })),
   replaceProject: (project) =>
     set({
       project,

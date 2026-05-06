@@ -60,7 +60,7 @@ export function createProject(input: CreateProjectInput): Project {
     pv: { panelTypes: [], arrays: [] },
     electrical: { inverters: [], wiring: [] },
     storage: { batteries: [] },
-    loads: { base: [], heatPumps: [] },
+    loads: { base: [], heatPumps: [], electricVehicles: [] },
     tariffs: [],
   };
   // Validate so creation always returns a schema-conformant value.

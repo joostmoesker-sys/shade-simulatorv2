@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BatterySchema,
   BuildingObjectSchema,
+  ElectricVehicleProfileSchema,
   InverterSchema,
   LocationSchema,
   NL_BOUNDS,
@@ -172,6 +173,13 @@ describe('PV / inverter / battery schemas', () => {
     expect(bat.roundTripEfficiency).toBeCloseTo(0.9);
     expect(bat.allowGridCharge).toBe(false);
   });
+
+  it('parses an electric vehicle profile with typical defaults', () => {
+    const ev = ElectricVehicleProfileSchema.parse({ id: 'ev1' });
+    expect(ev.batteryCapacityKwh).toBe(60);
+    expect(ev.weekdayUseKwh).toBe(6);
+    expect(ev.chargePowerKw).toBe(11);
+  });
 });
 
 describe('ProjectSchema', () => {
@@ -186,13 +194,18 @@ describe('ProjectSchema', () => {
     pv: { panelTypes: [], arrays: [] },
     electrical: { inverters: [], wiring: [] },
     storage: { batteries: [] },
-    loads: { base: [], heatPumps: [] },
+    loads: { base: [], heatPumps: [], electricVehicles: [] },
     tariffs: [],
   };
 
   it('accepts a minimal valid project', () => {
     const project = ProjectSchema.parse(baseProject);
     expect(project.schemaVersion).toBe(PROJECT_SCHEMA_VERSION);
+  });
+
+  it('defaults missing electric vehicle profiles for older project files', () => {
+    const project = ProjectSchema.parse({ ...baseProject, loads: { base: [], heatPumps: [] } });
+    expect(project.loads.electricVehicles).toEqual([]);
   });
 
   it('rejects an unknown schema version', () => {
