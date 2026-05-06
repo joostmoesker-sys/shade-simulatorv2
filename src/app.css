@@ -467,18 +467,26 @@ body,
   color: var(--color-muted);
   font-size: 0.8rem;
 }
-.wiring-array-select {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--color-muted);
-  font-size: 0.85rem;
+.wiring-array-grids {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, max-content));
+  gap: 1rem;
+  align-items: start;
 }
-.wiring-array-select select {
-  padding: 0.3rem 0.4rem;
+.wiring-array-grid-card {
+  display: grid;
+  gap: 0.5rem;
+  width: fit-content;
+  padding: 0.75rem;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  font: inherit;
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+.wiring-array-grid-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: baseline;
 }
 .wiring-actions {
   display: flex;
