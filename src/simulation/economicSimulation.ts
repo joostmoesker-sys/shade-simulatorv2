@@ -152,7 +152,6 @@ export function generateEconomicTariffs(samples: HourlyWeatherSample[], tariff?:
   const buy: number[] = [];
   const sell: number[] = [];
   for (const sample of samples) {
-    const date = new Date(sample.timestamp);
     if (!tariff || tariff.dynamic) {
       const apx = rawDayAheadPriceEurPerKwh(sample.timestamp);
       if (apx === null) {
