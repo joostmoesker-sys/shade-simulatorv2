@@ -155,7 +155,7 @@ export function generateEconomicTariffs(samples: HourlyWeatherSample[], tariff?:
     if (!tariff || tariff.dynamic) {
       const apx = rawDayAheadPriceEurPerKwh(sample.timestamp);
       if (apx === null) {
-        throw new Error(`Geen ruwe 2025 NL day-ahead prijs beschikbaar voor ${sample.timestamp}`);
+        throw new Error(`No raw 2025 NL day-ahead price available for ${sample.timestamp}`);
       }
       buy.push(apx + (tariff?.energyTaxEurPerKwh ?? 0.1316) + (tariff?.importMarkupEurPerKwh ?? 0.03));
       sell.push(apx + (tariff?.exportMarkupEurPerKwh ?? 0));

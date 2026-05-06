@@ -42,6 +42,7 @@ export interface ProjectElectricalHourResult extends InverterElectricalResult {
 }
 
 const STC_IRRADIANCE_WM2 = 1000;
+const CURVE_INTERPOLATION_EPSILON = 1e-9;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -353,7 +354,7 @@ function currentAtVoltage(points: IVPoint[], voltage: number): number {
     const left = sorted[index];
     const right = sorted[index + 1];
     if (voltage >= left.v && voltage <= right.v) {
-      const fraction = (voltage - left.v) / Math.max(1e-9, right.v - left.v);
+      const fraction = (voltage - left.v) / Math.max(CURVE_INTERPOLATION_EPSILON, right.v - left.v);
       return left.i + fraction * (right.i - left.i);
     }
   }
@@ -369,7 +370,7 @@ function voltageAtCurrent(points: IVPoint[], current: number): number {
     const high = sorted[index];
     const low = sorted[index + 1];
     if (current <= high.i && current >= low.i) {
-      const fraction = (high.i - current) / Math.max(1e-9, high.i - low.i);
+      const fraction = (high.i - current) / Math.max(CURVE_INTERPOLATION_EPSILON, high.i - low.i);
       return high.v + fraction * (low.v - high.v);
     }
   }

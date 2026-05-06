@@ -56,6 +56,15 @@ describe('phase 4 economic simulation', () => {
     expect(tariffs.buy[1]).toBeGreaterThan(tariffs.sell[1]);
   });
 
+  it('returns no raw dynamic price outside the 2025 hourly dataset', () => {
+    expect(rawDayAheadPriceEurPerKwh('invalid')).toBeNull();
+    expect(rawDayAheadPriceEurPerKwh('2024-12-31T23:00:00Z')).toBeNull();
+    expect(rawDayAheadPriceEurPerKwh('2026-01-01T00:00:00Z')).toBeNull();
+    expect(() => generateEconomicTariffs([{ timestamp: '2026-01-01T00:00:00Z' }])).toThrow(
+      'No raw 2025 NL day-ahead price available',
+    );
+  });
+
   it('applies configurable import and export opslag to dynamic tariffs', () => {
     const tariffs = generateEconomicTariffs([{ timestamp: '2025-01-01T00:00:00Z' }], {
       id: 'tariff',
