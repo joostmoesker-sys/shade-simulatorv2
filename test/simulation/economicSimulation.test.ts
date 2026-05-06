@@ -4,13 +4,20 @@ import { createProject } from '../../src/model/project';
 import {
   buildHourlyLoadProfile,
   generateEconomicTariffs,
+  rawDayAheadPriceEurPerKwh,
   simulateProjectEconomics,
   simulateV4Economics,
 } from '../../src/simulation/economicSimulation';
+import { NL_DAY_AHEAD_PRICE_2025_EUR_MWH } from '../../src/simulation/nlDayAheadPrices2025';
 
 const validLocation = { lat: 52.0, lon: 5.0, timezone: 'Europe/Amsterdam' };
 
 describe('phase 4 economic simulation', () => {
+  it('contains one finite raw NL day-ahead price for every UTC hour in 2025', () => {
+    expect(NL_DAY_AHEAD_PRICE_2025_EUR_MWH).toHaveLength(8760);
+    expect(NL_DAY_AHEAD_PRICE_2025_EUR_MWH.every((value) => Number.isFinite(value))).toBe(true);
+  });
+
   it('builds household, heat pump and EV hourly load profiles', () => {
     const project = createProject({ name: 'Demo', location: validLocation });
     project.loads.base.push({ id: 'load', name: 'Basis', annualKwh: 3650, shape: 'flat' });
@@ -39,26 +46,51 @@ describe('phase 4 economic simulation', () => {
     expect(load.loadKwh.reduce((sum, value) => sum + value, 0)).toBeGreaterThan(load.baseLoadKwh);
   });
 
-  it('generates 2025 NL day-ahead buy and sell tariffs from real monthly averages', () => {
-    // June midday: near-zero wholesale → low buy tariff (~tax+levy only)
-    // December evening peak: high wholesale → high buy tariff
+  it('generates 2025 NL day-ahead buy and sell tariffs from raw hourly prices', () => {
     const tariffs = generateEconomicTariffs([
-      { timestamp: '2025-06-21T12:00:00Z' }, // summer midday (solar surplus)
-      { timestamp: '2025-12-21T18:00:00Z' }, // winter evening peak
+      { timestamp: '2025-01-01T00:00:00Z' },
+      { timestamp: '2025-07-01T12:00:00Z' },
+      { timestamp: '2025-12-31T23:00:00Z' },
     ]);
 
-    // Buy price must always be positive
-    expect(tariffs.buy[0]).toBeGreaterThan(0);
-    expect(tariffs.buy[1]).toBeGreaterThan(0);
-    // Sell price for midday June should be low (near-zero wholesale)
-    expect(tariffs.sell[0]).toBeLessThan(0.05);
-    // Winter evening peak buy should be significantly higher than summer midday
-    expect(tariffs.buy[1]).toBeGreaterThan(tariffs.buy[0]);
-    // Buy must exceed sell (no export subsidy in default tariff)
+    // Raw source values are exposed to tariffs as EUR/kWh.
+    expect(rawDayAheadPriceEurPerKwh('2025-01-01T00:00:00Z')).toBeCloseTo(0.00624);
+    expect(rawDayAheadPriceEurPerKwh('2025-07-01T12:00:00Z')).toBeCloseTo(0.04754);
+    expect(rawDayAheadPriceEurPerKwh('2025-12-31T23:00:00Z')).toBeCloseTo(0.06344);
+    expect(tariffs.sell[0]).toBeCloseTo(0.00624);
+    expect(tariffs.sell[1]).toBeCloseTo(0.04754);
+    expect(tariffs.sell[2]).toBeCloseTo(0.06344);
+    expect(tariffs.buy[0]).toBeCloseTo(0.00624 + 0.1316 + 0.03);
+    expect(tariffs.buy[1]).toBeCloseTo(0.04754 + 0.1316 + 0.03);
+    expect(tariffs.buy[2]).toBeCloseTo(0.06344 + 0.1316 + 0.03);
     expect(tariffs.buy[0]).toBeGreaterThan(tariffs.sell[0]);
     expect(tariffs.buy[1]).toBeGreaterThan(tariffs.sell[1]);
-    // December buy price: wholesale (~0.10 EUR/kWh evening peak) + tax 0.1316 + 0.04 ≈ > 0.20 EUR/kWh
-    expect(tariffs.buy[1]).toBeGreaterThan(0.20);
+    expect(tariffs.buy[2]).toBeGreaterThan(tariffs.sell[2]);
+  });
+
+  it('returns no raw dynamic price outside the 2025 hourly dataset', () => {
+    expect(rawDayAheadPriceEurPerKwh('invalid')).toBeNull();
+    expect(rawDayAheadPriceEurPerKwh('2024-12-31T23:00:00Z')).toBeNull();
+    expect(rawDayAheadPriceEurPerKwh('2026-01-01T00:00:00Z')).toBeNull();
+    expect(() => generateEconomicTariffs([{ timestamp: '2026-01-01T00:00:00Z' }])).toThrow(
+      'No raw 2025 NL day-ahead price available',
+    );
+  });
+
+  it('applies configurable import and export opslag to dynamic tariffs', () => {
+    const tariffs = generateEconomicTariffs([{ timestamp: '2025-01-01T00:00:00Z' }], {
+      id: 'tariff',
+      name: 'Dynamisch',
+      dynamic: true,
+      staticImportEurPerKwh: 0.3,
+      staticExportEurPerKwh: 0.05,
+      energyTaxEurPerKwh: 0.11,
+      importMarkupEurPerKwh: 0.02,
+      exportMarkupEurPerKwh: 0.01,
+    });
+
+    expect(tariffs.buy[0]).toBeCloseTo(0.00624 + 0.11 + 0.02);
+    expect(tariffs.sell[0]).toBeCloseTo(0.00624 + 0.01);
   });
 
   it('optimizes battery dispatch with the V4 euro objective', () => {

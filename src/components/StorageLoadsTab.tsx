@@ -1,12 +1,10 @@
-import type { Battery, ElectricVehicleProfile, HeatPumpProfile, LoadProfile, TariffProfile } from '../model/schema';
+import type { Battery, ElectricVehicleProfile, HeatPumpProfile, LoadProfile } from '../model/schema';
 import { useProjectStore } from '../store/projectStore';
 
 type BatteryNumberField = Extract<keyof Battery, 'capacityKwh' | 'pChargeMaxKw' | 'pDischargeMaxKw' | 'roundTripEfficiency' | 'socMin' | 'socMax' | 'standbyW'>;
 type LoadNumberField = Extract<keyof LoadProfile, 'annualKwh'>;
 type HeatPumpNumberField = Extract<keyof HeatPumpProfile, 'winterDayKwh' | 'heatingBaseTempC'>;
 type EVNumberField = Extract<keyof ElectricVehicleProfile, 'batteryCapacityKwh' | 'chargePowerKw' | 'weekdayUseKwh' | 'weekendUseKwh' | 'chargeStartHour' | 'chargeEndHour'>;
-type TariffNumberField = Extract<keyof TariffProfile, 'staticImportEurPerKwh' | 'staticExportEurPerKwh' | 'energyTaxEurPerKwh'>;
-
 function numberValue(rawValue: string): number | null {
   const value = Number(rawValue);
   return Number.isFinite(value) ? value : null;
@@ -26,15 +24,11 @@ export function StorageLoadsTab() {
   const addElectricVehicle = useProjectStore((s) => s.addElectricVehicle);
   const updateElectricVehicle = useProjectStore((s) => s.updateElectricVehicle);
   const removeElectricVehicle = useProjectStore((s) => s.removeElectricVehicle);
-  const addTariff = useProjectStore((s) => s.addTariff);
-  const updateTariff = useProjectStore((s) => s.updateTariff);
-  const removeTariff = useProjectStore((s) => s.removeTariff);
 
   const battery = project.storage.batteries[0] ?? null;
   const load = project.loads.base[0] ?? null;
   const heatPump = project.loads.heatPumps[0] ?? null;
   const ev = project.loads.electricVehicles[0] ?? null;
-  const tariff = project.tariffs[0] ?? null;
 
   const updateBatteryNumber = (field: BatteryNumberField, rawValue: string) => {
     if (!battery) return;
@@ -56,18 +50,12 @@ export function StorageLoadsTab() {
     const value = numberValue(rawValue);
     if (value !== null) updateElectricVehicle(ev.id, { [field]: value });
   };
-  const updateTariffNumber = (field: TariffNumberField, rawValue: string) => {
-    if (!tariff) return;
-    const value = numberValue(rawValue);
-    if (value !== null) updateTariff(tariff.id, { [field]: value });
-  };
-
   return (
     <div className="panel-content storage-loads-tab">
       <section className="simulation-controls">
         <h2>Accu & Verbruik</h2>
         <p className="hint">
-          Configureer fase-4 input voor V4 economische optimalisatie: huishouden, warmtepomp, EV, accu en tarieven.
+          Configureer fase-4 input voor V4 economische optimalisatie: huishouden, warmtepomp, EV en accu.
         </p>
       </section>
 
@@ -138,22 +126,6 @@ export function StorageLoadsTab() {
             <label>Startuur<input type="number" min={0} max={23} value={ev.chargeStartHour} onChange={(e) => updateEVNumber('chargeStartHour', e.target.value)} /></label>
             <label>Einduur<input type="number" min={0} max={23} value={ev.chargeEndHour} onChange={(e) => updateEVNumber('chargeEndHour', e.target.value)} /></label>
             <label><input type="checkbox" checked={ev.flexible} onChange={(e) => updateElectricVehicle(ev.id, { flexible: e.target.checked })} /> Flexibel laden binnen venster</label>
-          </div>
-        )}
-      </section>
-
-      <section className="simulation-summary">
-        <header className="sub-editor-header">
-          <h3>Tarieven</h3>
-          {tariff ? <button type="button" onClick={() => removeTariff(tariff.id)}>Verwijderen</button> : <button type="button" onClick={() => addTariff()}>Toevoegen</button>}
-        </header>
-        {tariff && (
-          <div className="field-grid">
-            <label>Naam<input value={tariff.name} onChange={(e) => updateTariff(tariff.id, { name: e.target.value })} /></label>
-            <label>Import €/kWh<input type="number" min={0} step={0.01} value={tariff.staticImportEurPerKwh} onChange={(e) => updateTariffNumber('staticImportEurPerKwh', e.target.value)} /></label>
-            <label>Export €/kWh<input type="number" min={0} step={0.01} value={tariff.staticExportEurPerKwh} onChange={(e) => updateTariffNumber('staticExportEurPerKwh', e.target.value)} /></label>
-            <label>Energiebelasting €/kWh<input type="number" min={0} step={0.001} value={tariff.energyTaxEurPerKwh} onChange={(e) => updateTariffNumber('energyTaxEurPerKwh', e.target.value)} /></label>
-            <label><input type="checkbox" checked={tariff.dynamic} onChange={(e) => updateTariff(tariff.id, { dynamic: e.target.checked })} /> Dynamisch APX-profiel 2025</label>
           </div>
         )}
       </section>

@@ -1,14 +1,21 @@
 import { useState } from 'react';
 
-import { runAnnualSimulation, type AnnualSimulationResult } from '../simulation/annualSimulation';
+import type { TariffProfile } from '../model/schema';
+import { runAnnualSimulation } from '../simulation/annualSimulation';
 import { calculatePlaneOfArrayIrradiance } from '../simulation/irradiance';
-import { buildPanelIVCurve, type IVCurveResult } from '../simulation/pvPerformance';
+import { buildMPPTIVCurve, type IVCurveResult } from '../simulation/pvPerformance';
 import { estimateArrayShadeFactors, buildShadowFeatureCollection } from '../simulation/shading';
 import { calculateSolarPosition } from '../simulation/solarPosition';
 import { normalizeWeather } from '../simulation/weather';
 import { useProjectStore } from '../store/projectStore';
 
 const MINUTES_PER_DAY = 24 * 60;
+const DEFAULT_DYNAMIC_TARIFF_INPUTS = {
+  energyTaxEurPerKwh: 0.1316,
+  importMarkupEurPerKwh: 0.03,
+  exportMarkupEurPerKwh: 0,
+} as const;
+type DynamicTariffNumberField = keyof typeof DEFAULT_DYNAMIC_TARIFF_INPUTS;
 
 function dateInputValue(timestamp: string): string {
   const date = new Date(timestamp);
@@ -49,6 +56,11 @@ function euroLabel(value: number): string {
   return `€${value.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`;
 }
 
+function numberValue(rawValue: string): number | null {
+  const value = Number(rawValue);
+  return Number.isFinite(value) ? value : null;
+}
+
 function MonthlyEnergyChart({ values }: { values: number[] }) {
   const max = Math.max(1, ...values);
   const months = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
@@ -85,10 +97,10 @@ function MonthlyCashflowChart({ values }: { values: number[] }) {
 
 interface IVPVChartProps {
   curve: IVCurveResult;
-  arrayName: string;
+  label: string;
 }
 
-function IVPVChart({ curve, arrayName }: IVPVChartProps) {
+function IVPVChart({ curve, label }: IVPVChartProps) {
   if (curve.unshaded.length === 0) return null;
 
   const W = 320;
@@ -118,9 +130,9 @@ function IVPVChart({ curve, arrayName }: IVPVChartProps) {
   const hasShadedCurve = curve.iscShadedA < curve.iscA * 0.999 && curve.shaded.length > 0;
 
   return (
-    <figure className="iv-pv-chart" aria-label={`I–V / P–V curve ${arrayName}`}>
+    <figure className="iv-pv-chart" aria-label={`I–V / P–V curve ${label}`}>
       <figcaption className="iv-pv-chart__caption">
-        {arrayName} — I–V &amp; P–V curves (
+        {label} — I–V &amp; P–V curves (
         {hasShadedCurve ? (
           <>
             <span className="iv-pv-chart__legend-unshaded">▬</span> onbeschaduwd &nbsp;
@@ -131,14 +143,14 @@ function IVPVChart({ curve, arrayName }: IVPVChartProps) {
         )}
         ){' '}
         <small>
-          Voc {curve.vocV.toFixed(0)} V · Isc {curve.iscA.toFixed(1)} A · Vmpp {curve.vmppV.toFixed(0)} V
+          MPP {curve.mppV.toFixed(0)} V · {curve.mppA.toFixed(1)} A · {curve.mppW.toFixed(0)} W
         </small>
       </figcaption>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="iv-pv-chart__svg"
         role="img"
-        aria-label={`I–V en P–V curve voor ${arrayName}`}
+        aria-label={`I–V en P–V curve voor ${label}`}
       >
         {/* Grid lines */}
         {ticksV.map((t) => (
@@ -230,9 +242,18 @@ export function SimulationTab() {
   const project = useProjectStore((s) => s.project);
   const timestamp = useProjectStore((s) => s.simulationPreviewTimestamp);
   const setTimestamp = useProjectStore((s) => s.setSimulationPreviewTimestamp);
-  const [annualResult, setAnnualResult] = useState<AnnualSimulationResult | null>(null);
+  const annualResult = useProjectStore((s) => s.annualSimulationResult);
+  const setAnnualResult = useProjectStore((s) => s.setAnnualSimulationResult);
+  const addTariff = useProjectStore((s) => s.addTariff);
+  const updateTariff = useProjectStore((s) => s.updateTariff);
   const [annualError, setAnnualError] = useState<string | null>(null);
   const [isRunningAnnual, setIsRunningAnnual] = useState(false);
+  const tariff = project.tariffs[0] ?? null;
+  const dynamicTariffInputs: Pick<TariffProfile, DynamicTariffNumberField> = {
+    energyTaxEurPerKwh: tariff?.energyTaxEurPerKwh ?? DEFAULT_DYNAMIC_TARIFF_INPUTS.energyTaxEurPerKwh,
+    importMarkupEurPerKwh: tariff?.importMarkupEurPerKwh ?? DEFAULT_DYNAMIC_TARIFF_INPUTS.importMarkupEurPerKwh,
+    exportMarkupEurPerKwh: tariff?.exportMarkupEurPerKwh ?? DEFAULT_DYNAMIC_TARIFF_INPUTS.exportMarkupEurPerKwh,
+  };
   const date = new Date(timestamp);
   const selectedDate = dateInputValue(timestamp);
   const selectedMinute = minuteOfDay(timestamp);
@@ -244,18 +265,37 @@ export function SimulationTab() {
   const arrayResults = project.pv.arrays.map((array) => {
     const irradiance = calculatePlaneOfArrayIrradiance(weather, solar, array);
     const shadeFactor = shadeResults.find((item) => item.arrayId === array.id)?.shadeFactor ?? 0;
-    const panelType = project.pv.panelTypes.find((pt) => pt.id === array.panelTypeId);
-    const ivCurve = panelType
-      ? buildPanelIVCurve(panelType, irradiance, shadeFactor, weather.temperatureC, weather.windSpeedMs)
-      : null;
     return {
       array,
       irradiance,
       shadeFactor,
       effectiveWm2: irradiance.totalWm2 * (1 - shadeFactor),
-      ivCurve,
     };
   });
+
+  const arrayInputs = new Map(
+    arrayResults.map((result) => [
+      result.array.id,
+      {
+        poa: result.irradiance,
+        shadeFactor: result.shadeFactor,
+      },
+    ]),
+  );
+  const mpptCurveResults = project.electrical.inverters.flatMap((inverter) =>
+    inverter.mppts.flatMap((mppt) => {
+      const curve = buildMPPTIVCurve(project, inverter.id, mppt.id, arrayInputs, weather.temperatureC, weather.windSpeedMs);
+      return curve && curve.unshaded.length > 0
+        ? [
+            {
+              id: `${inverter.id}:${mppt.id}`,
+              label: `${inverter.name} · ${mppt.name}`,
+              curve,
+            },
+          ]
+        : [];
+    }),
+  );
 
   const updateDate = (dateValue: string) => {
     setTimestamp(timestampFromDateAndMinutes(dateValue, selectedMinute));
@@ -263,6 +303,14 @@ export function SimulationTab() {
 
   const updateMinute = (minutes: number) => {
     setTimestamp(timestampFromDateAndMinutes(selectedDate, minutes));
+  };
+
+  const updateDynamicTariffInput = (field: DynamicTariffNumberField, rawValue: string) => {
+    const value = numberValue(rawValue);
+    if (value === null) return;
+    if (tariff) updateTariff(tariff.id, { [field]: value, dynamic: true });
+    else addTariff({ [field]: value, dynamic: true });
+    setAnnualResult(null);
   };
 
   const hasCompleteElectricalModel =
@@ -307,6 +355,44 @@ export function SimulationTab() {
         <button type="button" onClick={runAnnual} disabled={!hasCompleteElectricalModel || isRunningAnnual}>
           {isRunningAnnual ? 'Jaar 2025 wordt berekend…' : 'Bereken jaar 2025'}
         </button>
+        <fieldset className="simulation-tariff-controls">
+          <legend>Day-ahead kostenparameters</legend>
+          <p className="hint">
+            Inkoop = echte NL day-ahead prijs + belasting + inkoop opslag. Verkoop = day-ahead prijs + verkoop opslag.
+          </p>
+          <div className="field-grid">
+            <label>
+              Belasting €/kWh
+              <input
+                type="number"
+                min={0}
+                step={0.001}
+                value={dynamicTariffInputs.energyTaxEurPerKwh}
+                onChange={(e) => updateDynamicTariffInput('energyTaxEurPerKwh', e.target.value)}
+              />
+            </label>
+            <label>
+              Inkoop opslag €/kWh
+              <input
+                type="number"
+                min={0}
+                step={0.001}
+                value={dynamicTariffInputs.importMarkupEurPerKwh}
+                onChange={(e) => updateDynamicTariffInput('importMarkupEurPerKwh', e.target.value)}
+              />
+            </label>
+            <label>
+              Verkoop opslag €/kWh
+              <input
+                type="number"
+                min={0}
+                step={0.001}
+                value={dynamicTariffInputs.exportMarkupEurPerKwh}
+                onChange={(e) => updateDynamicTariffInput('exportMarkupEurPerKwh', e.target.value)}
+              />
+            </label>
+          </div>
+        </fieldset>
         {!hasCompleteElectricalModel && (
           <p className="hint">Voeg PV arrays, inverter(s) en bekabelde strings toe voor de jaarberekening.</p>
         )}
@@ -359,20 +445,18 @@ export function SimulationTab() {
           <p className="empty-state">Voeg PV arrays toe om POA-instraling en schaduwfactoren te zien.</p>
         )}
 
-        <h3>I–V &amp; P–V curves</h3>
-        {arrayResults.some((r) => r.ivCurve && r.ivCurve.unshaded.length > 0) ? (
+        <h3>MPPT I–V &amp; P–V curves</h3>
+        {mpptCurveResults.length > 0 ? (
           <div className="iv-pv-chart-grid">
-            {arrayResults.map((result) =>
-              result.ivCurve && result.ivCurve.unshaded.length > 0 ? (
-                <IVPVChart key={result.array.id} curve={result.ivCurve} arrayName={result.array.name} />
-              ) : null,
-            )}
+            {mpptCurveResults.map((result) => (
+              <IVPVChart key={result.id} curve={result.curve} label={result.label} />
+            ))}
           </div>
         ) : (
           <p className="empty-state">
             {solar.elevationDeg <= 0
               ? 'Zon staat onder de horizon – geen instraling.'
-              : 'Voeg PV arrays met paneeltype toe om de curves te tonen.'}
+              : 'Voeg bekabelde MPPT-strings toe om de curves te tonen.'}
           </p>
         )}
       </section>

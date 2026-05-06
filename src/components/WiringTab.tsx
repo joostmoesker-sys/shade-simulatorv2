@@ -38,18 +38,21 @@ function summarizeString(
   arrays: PVArray[],
   panelTypes: PanelType[],
 ) {
-  const firstPanel = string.panels[0];
-  const array = firstPanel ? arrays.find((item) => item.id === firstPanel.arrayId) : null;
-  const panelType = array ? panelTypeForArray(array, panelTypes) : null;
-  if (!panelType) return null;
-  const panelCount = string.panels.length;
+  const panelRefs = string.panels.flatMap((panel) => {
+    const array = arrays.find((item) => item.id === panel.arrayId);
+    const panelType = array ? panelTypeForArray(array, panelTypes) : null;
+    return array && panelType ? [{ array, panelType }] : [];
+  });
+  if (panelRefs.length === 0) return null;
   return {
-    panelCount,
-    vmpV: panelType.vmpV * panelCount,
-    vocV: panelType.vocV * panelCount,
-    impA: panelType.impA,
-    iscA: panelType.iscA,
-    pmaxW: panelType.pmaxW * panelCount,
+    panelCount: panelRefs.length,
+    arrayCount: new Set(panelRefs.map((panel) => panel.array.id)).size,
+    vmpV: panelRefs.reduce((sum, panel) => sum + panel.panelType.vmpV, 0),
+    vocV: panelRefs.reduce((sum, panel) => sum + panel.panelType.vocV, 0),
+    // Series strings are current-limited by the weakest panel when arrays use different panel types.
+    impA: Math.min(...panelRefs.map((panel) => panel.panelType.impA)),
+    iscA: Math.min(...panelRefs.map((panel) => panel.panelType.iscA)),
+    pmaxW: panelRefs.reduce((sum, panel) => sum + panel.panelType.pmaxW, 0),
   };
 }
 
@@ -79,8 +82,8 @@ function panelKey(arrayId: string, row: number, column: number): string {
   return `${arrayId}:${row}:${column}`;
 }
 
-function pendingPanelLabel(panels: WiringString['panels'], row: number, column: number): number | null {
-  const index = panels.findIndex((panel) => panel.row === row && panel.column === column);
+function pendingPanelLabel(panels: WiringString['panels'], arrayId: string, row: number, column: number): number | null {
+  const index = panels.findIndex((panel) => panel.arrayId === arrayId && panel.row === row && panel.column === column);
   return index >= 0 ? index + 1 : null;
 }
 
@@ -90,18 +93,20 @@ interface PanelGridProps {
   pendingPanels: WiringString['panels'];
   highlightedStringPanelKeys: Set<string>;
   isBuilding: boolean;
-  onToggle: (row: number, column: number) => void;
+  onToggle: (arrayId: string, row: number, column: number) => void;
 }
 
 function PanelGrid({ array, assignedKeys, pendingPanels, highlightedStringPanelKeys, isBuilding, onToggle }: PanelGridProps) {
   const pendingKeys = useMemo(
-    () => new Set(pendingPanels.map((p) => panelKey(array.id, p.row, p.column))),
-    [pendingPanels, array.id],
+    () => new Set(pendingPanels.map((p) => panelKey(p.arrayId, p.row, p.column))),
+    [pendingPanels],
   );
+
+  const isLandscape = array.orientation === 'landscape';
 
   return (
     <div
-      className="panel-grid"
+      className={`panel-grid${isLandscape ? ' panel-grid--landscape' : ''}`}
       style={{ '--panel-grid-columns': array.columns } as React.CSSProperties}
       aria-label={`Paneelraster ${array.name}`}
     >
@@ -111,7 +116,7 @@ function PanelGrid({ array, assignedKeys, pendingPanels, highlightedStringPanelK
           const isAssigned = assignedKeys.has(key);
           const isPending = pendingKeys.has(key);
           const isHighlighted = highlightedStringPanelKeys.has(key);
-          const orderNumber = isPending ? pendingPanelLabel(pendingPanels, row, column) : null;
+          const orderNumber = isPending ? pendingPanelLabel(pendingPanels, array.id, row, column) : null;
 
           let state: 'available' | 'pending' | 'assigned' | 'highlighted' = 'available';
           if (isAssigned) state = 'assigned';
@@ -124,9 +129,9 @@ function PanelGrid({ array, assignedKeys, pendingPanels, highlightedStringPanelK
               type="button"
               className={`panel-cell panel-cell--${state}`}
               disabled={isAssigned || !isBuilding}
-              aria-label={`Rij ${row + 1} Kolom ${column + 1}${isAssigned ? ' (toegewezen)' : ''}${isPending ? ` (geselecteerd #${orderNumber ?? ''})` : ''}`}
+              aria-label={`${array.name} Rij ${row + 1} Kolom ${column + 1}${isAssigned ? ' (toegewezen)' : ''}${isPending ? ` (geselecteerd #${orderNumber ?? ''})` : ''}`}
               aria-pressed={isPending ? true : undefined}
-              onClick={() => onToggle(row, column)}
+              onClick={() => onToggle(array.id, row, column)}
             >
               {isPending && orderNumber !== null ? (
                 <span className="panel-cell__order">{orderNumber}</span>
@@ -148,7 +153,6 @@ export function WiringTab() {
     const firstMPPT = firstInverter?.mppts[0];
     return firstInverter && firstMPPT ? mpptKey(firstInverter.id, firstMPPT.id) : null;
   });
-  const [selectedArrayId, setSelectedArrayId] = useState<string>(() => project.pv.arrays[0]?.id ?? '');
   const [pendingPanels, setPendingPanels] = useState<WiringString['panels']>([]);
   const [isBuilding, setIsBuilding] = useState(false);
   const [hoveredStringId, setHoveredStringId] = useState<string | null>(null);
@@ -157,7 +161,6 @@ export function WiringTab() {
     () => findSelectedMPPT(project.electrical.inverters, selectedKey),
     [project.electrical.inverters, selectedKey],
   );
-  const selectedArray = project.pv.arrays.find((array) => array.id === selectedArrayId) ?? project.pv.arrays[0];
   const selectedWiring = selected
     ? getMPPTWiring(project.electrical.wiring, selected.inverter.id, selected.mppt.id)
     : null;
@@ -193,12 +196,6 @@ export function WiringTab() {
   }, [project.electrical.wiring, hoveredStringId]);
 
   useEffect(() => {
-    if (!selectedArrayId || !project.pv.arrays.some((array) => array.id === selectedArrayId)) {
-      setSelectedArrayId(project.pv.arrays[0]?.id ?? '');
-    }
-  }, [project.pv.arrays, selectedArrayId]);
-
-  useEffect(() => {
     const nextKey = selected ? mpptKey(selected.inverter.id, selected.mppt.id) : null;
     if (selectedKey !== nextKey) {
       setSelectedKey(nextKey);
@@ -222,18 +219,18 @@ export function WiringTab() {
     setIsBuilding(false);
   };
 
-  const togglePanel = (row: number, column: number) => {
-    if (!isBuilding || !selectedArray) return;
-    const key = panelKey(selectedArray.id, row, column);
+  const togglePanel = (arrayId: string, row: number, column: number) => {
+    if (!isBuilding || !project.pv.arrays.some((array) => array.id === arrayId)) return;
+    const key = panelKey(arrayId, row, column);
     if (assignedPanelKeys.has(key)) return;
     setPendingPanels((prev) => {
       const existingIndex = prev.findIndex(
-        (panel) => panel.arrayId === selectedArray.id && panel.row === row && panel.column === column,
+        (panel) => panel.arrayId === arrayId && panel.row === row && panel.column === column,
       );
       if (existingIndex >= 0) {
         return prev.filter((_, index) => index !== existingIndex);
       }
-      return [...prev, { arrayId: selectedArray.id, row, column }];
+      return [...prev, { arrayId, row, column }];
     });
   };
 
@@ -286,44 +283,36 @@ export function WiringTab() {
             <>
               <div className="wiring-array-panel">
                 <div className="wiring-array-header">
-                  {project.pv.arrays.length > 1 && (
-                    <label className="wiring-array-select">
-                      Array:
-                      <select
-                        value={selectedArray?.id ?? ''}
-                        onChange={(e) => {
-                          setSelectedArrayId(e.target.value);
-                          cancelBuilding();
-                        }}
-                      >
-                        {project.pv.arrays.map((array) => (
-                          <option key={array.id} value={array.id}>
-                            {array.name} ({array.rows}×{array.columns})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
                   <div className="wiring-array-title">
-                    <strong>{selectedArray?.name ?? '—'}</strong>
-                    {selectedArray && (
-                      <span className="wiring-dim">
-                        {selectedArray.rows} rijen × {selectedArray.columns} kolommen
-                      </span>
-                    )}
+                    <strong>PV arrays</strong>
+                    <span className="wiring-dim">
+                      Selecteer panelen uit alle arrays om één seriestring samen te stellen.
+                    </span>
                   </div>
                 </div>
 
-                {selectedArray ? (
+                {project.pv.arrays.length > 0 ? (
                   <>
-                    <PanelGrid
-                      array={selectedArray}
-                      assignedKeys={assignedPanelKeys}
-                      pendingPanels={pendingPanels}
-                      highlightedStringPanelKeys={hoveredStringPanelKeys}
-                      isBuilding={isBuilding}
-                      onToggle={togglePanel}
-                    />
+                    <div className="wiring-array-grids">
+                      {project.pv.arrays.map((array) => (
+                        <section key={array.id} className="wiring-array-grid-card" aria-label={`Array ${array.name}`}>
+                          <header>
+                            <strong>{array.name}</strong>
+                            <span className="wiring-dim">
+                              {array.rows} rijen × {array.columns} kolommen
+                            </span>
+                          </header>
+                          <PanelGrid
+                            array={array}
+                            assignedKeys={assignedPanelKeys}
+                            pendingPanels={pendingPanels}
+                            highlightedStringPanelKeys={hoveredStringPanelKeys}
+                            isBuilding={isBuilding}
+                            onToggle={togglePanel}
+                          />
+                        </section>
+                      ))}
+                    </div>
                     <div className="wiring-legend">
                       <span className="legend-item legend-item--available">Beschikbaar</span>
                       <span className="legend-item legend-item--pending">Selectie</span>
@@ -399,7 +388,7 @@ export function WiringTab() {
                             <strong>String {index + 1}</strong>
                             {summary && (
                               <small>
-                                {`${summary.panelCount} panelen · Vmp ${summary.vmpV.toFixed(0)} V · Voc ${summary.vocV.toFixed(0)} V · ${summary.pmaxW.toFixed(0)} Wp`}
+                                {`${summary.panelCount} panelen uit ${summary.arrayCount} array${summary.arrayCount !== 1 ? 's' : ''} · Vmp ${summary.vmpV.toFixed(0)} V · Voc ${summary.vocV.toFixed(0)} V · ${summary.pmaxW.toFixed(0)} Wp`}
                               </small>
                             )}
                           </div>

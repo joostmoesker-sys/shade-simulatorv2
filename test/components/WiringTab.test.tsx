@@ -61,6 +61,27 @@ describe('<WiringTab>', () => {
     ]);
   });
 
+  it('builds one string with panels from multiple arrays', () => {
+    const east = useProjectStore.getState().addPVArray({ name: 'Dak oost', rows: 1, columns: 2 });
+    const west = useProjectStore.getState().addPVArray({ name: 'Dak west', rows: 1, columns: 2 });
+    const inverter = useProjectStore.getState().addInverter({ name: 'Growatt' });
+
+    render(<WiringTab />);
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Nieuwe string' }));
+    fireEvent.click(within(screen.getByRole('region', { name: 'Array Dak oost' })).getByRole('button', { name: /Rij 1 Kolom 1/ }));
+    fireEvent.click(within(screen.getByRole('region', { name: 'Array Dak west' })).getByRole('button', { name: /Rij 1 Kolom 2/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'String bevestigen' }));
+
+    const wiring = useProjectStore.getState().project.electrical.wiring[0];
+    expect(wiring).toMatchObject({ inverterId: inverter.id, mpptId: inverter.mppts[0].id });
+    expect(wiring.strings[0].panels).toEqual([
+      { arrayId: east.id, row: 0, column: 0 },
+      { arrayId: west.id, row: 0, column: 1 },
+    ]);
+    expect(screen.getByText(/2 panelen uit 2 arrays/)).toBeInTheDocument();
+  });
+
   it('greys out panels already assigned and shows assigned state', () => {
     const array = useProjectStore.getState().addPVArray({ name: 'Dak', rows: 1, columns: 2 });
     const inverter = useProjectStore.getState().addInverter({ name: 'Inv' });

@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 
 import { createProject, generateId } from '../model/project';
+import type { AnnualSimulationResult } from '../simulation/annualSimulation';
 import {
   BuildingObjectSchema,
   BatterySchema,
@@ -123,11 +124,13 @@ interface ProjectStoreState {
   selectedPVArrayId: string | null;
   objectMapAddKind: 'tree' | 'building' | null;
   simulationPreviewTimestamp: string;
+  annualSimulationResult: AnnualSimulationResult | null;
   setActiveTab: (tab: ProjectTab) => void;
   setSelectedSceneObjectId: (id: string | null) => void;
   setSelectedPVArrayId: (id: string | null) => void;
   setObjectMapAddKind: (kind: 'tree' | 'building' | null) => void;
   setSimulationPreviewTimestamp: (timestamp: string) => void;
+  setAnnualSimulationResult: (result: AnnualSimulationResult | null) => void;
   setLocation: (location: Location) => void;
   ensureDefaultPanelType: () => string;
   addSceneObject: (input: AddSceneObjectInput) => SceneObject;
@@ -218,11 +221,13 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
   selectedPVArrayId: null,
   objectMapAddKind: null,
   simulationPreviewTimestamp: createDefaultSimulationPreviewTimestamp(),
+  annualSimulationResult: null,
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSelectedSceneObjectId: (id) => set({ selectedSceneObjectId: id }),
   setSelectedPVArrayId: (id) => set({ selectedPVArrayId: id }),
   setObjectMapAddKind: (kind) => set({ objectMapAddKind: kind }),
   setSimulationPreviewTimestamp: (timestamp) => set({ simulationPreviewTimestamp: timestamp }),
+  setAnnualSimulationResult: (result) => set({ annualSimulationResult: result }),
   setLocation: (location) =>
     set((state) => ({
       project: bumpProject({
@@ -849,6 +854,8 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
         staticImportEurPerKwh: input.staticImportEurPerKwh ?? 0.3,
         staticExportEurPerKwh: input.staticExportEurPerKwh ?? 0.05,
         energyTaxEurPerKwh: input.energyTaxEurPerKwh ?? 0.1316,
+        importMarkupEurPerKwh: input.importMarkupEurPerKwh ?? 0.03,
+        exportMarkupEurPerKwh: input.exportMarkupEurPerKwh ?? 0,
       });
       return {
         project: bumpProject({ ...state.project, tariffs: [...state.project.tariffs, created] }),
@@ -879,5 +886,6 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
       selectedSceneObjectId: project.scene.objects[0]?.id ?? null,
       selectedPVArrayId: project.pv.arrays[0]?.id ?? null,
       objectMapAddKind: null,
+      annualSimulationResult: null,
     }),
 }));

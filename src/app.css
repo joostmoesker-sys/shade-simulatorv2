@@ -169,6 +169,7 @@ body,
 .location-tab,
 .pv-arrays-tab,
 .simulation-tab,
+.results-tab,
 .editor-page {
   display: grid;
   grid-template-columns: 320px 1fr;
@@ -177,6 +178,7 @@ body,
 .panel-content.location-tab,
 .panel-content.pv-arrays-tab,
 .panel-content.simulation-tab,
+.panel-content.results-tab,
 .panel-content.editor-page {
   display: block;
   height: auto;
@@ -465,18 +467,26 @@ body,
   color: var(--color-muted);
   font-size: 0.8rem;
 }
-.wiring-array-select {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--color-muted);
-  font-size: 0.85rem;
+.wiring-array-grids {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, max-content));
+  gap: 1rem;
+  align-items: start;
 }
-.wiring-array-select select {
-  padding: 0.3rem 0.4rem;
+.wiring-array-grid-card {
+  display: grid;
+  gap: 0.5rem;
+  width: fit-content;
+  padding: 0.75rem;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  font: inherit;
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+.wiring-array-grid-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: baseline;
 }
 .wiring-actions {
   display: flex;
@@ -542,6 +552,10 @@ body,
   justify-content: center;
   transition: background 0.1s, border-color 0.1s;
   position: relative;
+}
+.panel-grid--landscape .panel-cell {
+  width: calc(var(--panel-cell-size) * 1.65);
+  height: var(--panel-cell-size);
 }
 .panel-cell--available {
   background: #dbeafe;
@@ -696,7 +710,8 @@ body,
   font-weight: 600;
 }
 
-.simulation-tab {
+.simulation-tab,
+.results-tab {
   padding: 1rem;
 }
 .simulation-controls,
@@ -734,6 +749,11 @@ body,
 .simulation-controls button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+.results-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
 }
 .storage-loads-tab .field-grid label {
   display: grid;
