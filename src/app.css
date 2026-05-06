@@ -553,6 +553,10 @@ body,
   transition: background 0.1s, border-color 0.1s;
   position: relative;
 }
+.panel-grid--landscape .panel-cell {
+  width: calc(var(--panel-cell-size) * 1.65);
+  height: var(--panel-cell-size);
+}
 .panel-cell--available {
   background: #dbeafe;
   border-color: #1f5fa6;

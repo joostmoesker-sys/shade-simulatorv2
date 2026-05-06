@@ -98,13 +98,15 @@ interface PanelGridProps {
 
 function PanelGrid({ array, assignedKeys, pendingPanels, highlightedStringPanelKeys, isBuilding, onToggle }: PanelGridProps) {
   const pendingKeys = useMemo(
-    () => new Set(pendingPanels.map((p) => panelKey(array.id, p.row, p.column))),
-    [pendingPanels, array.id],
+    () => new Set(pendingPanels.map((p) => panelKey(p.arrayId, p.row, p.column))),
+    [pendingPanels],
   );
+
+  const isLandscape = array.orientation === 'landscape';
 
   return (
     <div
-      className="panel-grid"
+      className={`panel-grid${isLandscape ? ' panel-grid--landscape' : ''}`}
       style={{ '--panel-grid-columns': array.columns } as React.CSSProperties}
       aria-label={`Paneelraster ${array.name}`}
     >
