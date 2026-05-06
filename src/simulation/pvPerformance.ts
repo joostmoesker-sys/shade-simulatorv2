@@ -345,9 +345,7 @@ function findCurveMPP(points: IVPoint[]): IVPoint {
   return points.reduce<IVPoint>((best, point) => (point.p > best.p ? point : best), { v: 0, i: 0, p: 0 });
 }
 
-function currentAtVoltage(points: IVPoint[], voltage: number): number {
-  if (points.length === 0) return 0;
-  const sorted = points.slice().sort((a, b) => a.v - b.v);
+function currentAtVoltage(sorted: IVPoint[], voltage: number): number {
   if (voltage <= sorted[0].v) return sorted[0].i;
   if (voltage >= sorted[sorted.length - 1].v) return 0;
   for (let index = 0; index < sorted.length - 1; index++) {
@@ -361,9 +359,7 @@ function currentAtVoltage(points: IVPoint[], voltage: number): number {
   return 0;
 }
 
-function voltageAtCurrent(points: IVPoint[], current: number): number {
-  if (points.length === 0) return 0;
-  const sorted = points.slice().sort((a, b) => b.i - a.i);
+function voltageAtCurrent(sorted: IVPoint[], current: number): number {
   if (current >= sorted[0].i) return sorted[0].v;
   if (current <= sorted[sorted.length - 1].i) return sorted[sorted.length - 1].v;
   for (let index = 0; index < sorted.length - 1; index++) {
@@ -380,11 +376,12 @@ function voltageAtCurrent(points: IVPoint[], current: number): number {
 function seriesCurve(curves: IVPoint[][], pointCount: number): IVPoint[] {
   const usable = curves.filter((curve) => curve.length > 0);
   if (usable.length === 0) return [];
-  const maxCurrent = Math.min(...usable.map((curve) => curve[0].i));
+  const sortedCurves = usable.map((curve) => curve.slice().sort((a, b) => b.i - a.i));
+  const maxCurrent = Math.min(...sortedCurves.map((curve) => curve[0].i));
   const points: IVPoint[] = [];
   for (let step = pointCount; step >= 0; step--) {
     const i = (step / pointCount) * maxCurrent;
-    const v = usable.reduce((sum, curve) => sum + voltageAtCurrent(curve, i), 0);
+    const v = sortedCurves.reduce((sum, curve) => sum + voltageAtCurrent(curve, i), 0);
     points.push({ v, i, p: v * i });
   }
   return points.sort((a, b) => a.v - b.v);
@@ -393,11 +390,12 @@ function seriesCurve(curves: IVPoint[][], pointCount: number): IVPoint[] {
 function parallelCurve(curves: IVPoint[][], pointCount: number): IVPoint[] {
   const usable = curves.filter((curve) => curve.length > 0);
   if (usable.length === 0) return [];
-  const maxVoltage = Math.min(...usable.map((curve) => curve[curve.length - 1].v));
+  const sortedCurves = usable.map((curve) => curve.slice().sort((a, b) => a.v - b.v));
+  const maxVoltage = Math.min(...sortedCurves.map((curve) => curve[curve.length - 1].v));
   const points: IVPoint[] = [];
   for (let step = 0; step <= pointCount; step++) {
     const v = (step / pointCount) * maxVoltage;
-    const i = usable.reduce((sum, curve) => sum + currentAtVoltage(curve, v), 0);
+    const i = sortedCurves.reduce((sum, curve) => sum + currentAtVoltage(curve, v), 0);
     points.push({ v, i, p: v * i });
   }
   return points;
