@@ -18,6 +18,7 @@ describe('projectStore', () => {
       selectedPVArrayId: null,
       objectMapAddKind: null,
       simulationPreviewTimestamp: '2026-06-21T12:00:00.000Z',
+      annualSimulationResult: null,
     });
   });
 
@@ -34,6 +35,53 @@ describe('projectStore', () => {
     useProjectStore.getState().setSimulationPreviewTimestamp('2026-03-21T09:30:00.000Z');
 
     expect(useProjectStore.getState().simulationPreviewTimestamp).toBe('2026-03-21T09:30:00.000Z');
+  });
+
+  it('stores and clears the latest annual simulation result', () => {
+    useProjectStore.getState().setAnnualSimulationResult({
+      year: 2025,
+      acKwh: 100,
+      dcKwh: 110,
+      shadeLossKwh: 1,
+      mismatchLossKwh: 2,
+      clippingLossKwh: 3,
+      voltageCurrentLossKwh: 4,
+      standbyLossKwh: 0,
+      monthlyAcKwh: Array.from({ length: 12 }, () => 0),
+      economic: {
+        version: 'v4-euro-optimizer',
+        annualSavingsEur: 10,
+        baselineCostEur: 20,
+        importCostEur: 12,
+        exportRevenueEur: 2,
+        importKwh: 50,
+        exportKwh: 5,
+        selfConsumedKwh: 95,
+        selfConsumptionPct: 95,
+        batteryChargedKwh: 0,
+        batteryDischargedKwh: 0,
+        batteryCycles: 0,
+        monthlySavingsEur: Array.from({ length: 12 }, () => 0),
+        monthlyImportCostEur: Array.from({ length: 12 }, () => 0),
+        monthlyRevenueEur: Array.from({ length: 12 }, () => 0),
+        dispatchSample: [],
+        diagnostics: {
+          finalSocKwh: 0,
+          socStepKwh: 0,
+          curtailedPvKwh: 0,
+          evLoadKwh: 0,
+          baseLoadKwh: 0,
+          heatPumpLoadKwh: 0,
+        },
+      },
+      samples: 8760,
+      weatherSource: 'provided',
+      elapsedMs: 10,
+    });
+    expect(useProjectStore.getState().annualSimulationResult?.acKwh).toBe(100);
+
+    useProjectStore.getState().replaceProject(createProject({ name: 'Nieuw', location: validLocation }));
+    expect(useProjectStore.getState().annualSimulationResult).toBeNull();
   });
 
   it('creates a configurable current default simulation preview timestamp', () => {

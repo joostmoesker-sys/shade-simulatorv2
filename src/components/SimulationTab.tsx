@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { runAnnualSimulation, type AnnualSimulationResult } from '../simulation/annualSimulation';
+import { runAnnualSimulation } from '../simulation/annualSimulation';
 import { calculatePlaneOfArrayIrradiance } from '../simulation/irradiance';
 import { buildMPPTIVCurve, type IVCurveResult } from '../simulation/pvPerformance';
 import { estimateArrayShadeFactors, buildShadowFeatureCollection } from '../simulation/shading';
@@ -230,7 +230,8 @@ export function SimulationTab() {
   const project = useProjectStore((s) => s.project);
   const timestamp = useProjectStore((s) => s.simulationPreviewTimestamp);
   const setTimestamp = useProjectStore((s) => s.setSimulationPreviewTimestamp);
-  const [annualResult, setAnnualResult] = useState<AnnualSimulationResult | null>(null);
+  const annualResult = useProjectStore((s) => s.annualSimulationResult);
+  const setAnnualResult = useProjectStore((s) => s.setAnnualSimulationResult);
   const [annualError, setAnnualError] = useState<string | null>(null);
   const [isRunningAnnual, setIsRunningAnnual] = useState(false);
   const date = new Date(timestamp);

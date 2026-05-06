@@ -22,6 +22,7 @@ describe('<SimulationTab>', () => {
       selectedPVArrayId: null,
       objectMapAddKind: null,
       simulationPreviewTimestamp: '2026-06-21T12:00:00.000Z',
+      annualSimulationResult: null,
     });
   });
 
@@ -108,6 +109,7 @@ describe('<SimulationTab>', () => {
 
     await waitFor(() => expect(screen.getByRole('region', { name: 'Jaarresultaten 2025' })).toBeInTheDocument());
     expect(runAnnualSimulation).toHaveBeenCalledWith(useProjectStore.getState().project, { year: 2025 });
+    expect(useProjectStore.getState().annualSimulationResult?.acKwh).toBe(1234);
     expect(screen.getByText('1.234 kWh')).toBeInTheDocument();
     expect(screen.getByLabelText('Maandopbrengst grafiek')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Economische resultaten 2025' })).toBeInTheDocument();

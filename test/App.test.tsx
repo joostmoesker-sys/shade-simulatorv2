@@ -42,4 +42,20 @@ describe('<App>', () => {
     expect(container.querySelector('.app-main')).toHaveClass('app-main--panel-only');
     expect(screen.getByLabelText('Projecteigenschappen')).toHaveClass('app-panel--full');
   });
+
+  it('renders the Resultaten tab implementation', () => {
+    useProjectStore.setState({
+      project: createProject({ name: 'Demo', location: validLocation, id: 'proj_demo' }),
+      activeTab: 'resultaten',
+      selectedSceneObjectId: null,
+      selectedPVArrayId: null,
+      objectMapAddKind: null,
+      annualSimulationResult: null,
+    });
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Resultaten' })).toBeInTheDocument();
+    expect(screen.queryByText('Deze stap wordt geïmplementeerd in een latere fase.')).not.toBeInTheDocument();
+  });
 });

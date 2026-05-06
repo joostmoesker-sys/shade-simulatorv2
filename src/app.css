@@ -169,6 +169,7 @@ body,
 .location-tab,
 .pv-arrays-tab,
 .simulation-tab,
+.results-tab,
 .editor-page {
   display: grid;
   grid-template-columns: 320px 1fr;
@@ -177,6 +178,7 @@ body,
 .panel-content.location-tab,
 .panel-content.pv-arrays-tab,
 .panel-content.simulation-tab,
+.panel-content.results-tab,
 .panel-content.editor-page {
   display: block;
   height: auto;
@@ -696,7 +698,8 @@ body,
   font-weight: 600;
 }
 
-.simulation-tab {
+.simulation-tab,
+.results-tab {
   padding: 1rem;
 }
 .simulation-controls,
@@ -734,6 +737,11 @@ body,
 .simulation-controls button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+.results-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
 }
 .storage-loads-tab .field-grid label {
   display: grid;
