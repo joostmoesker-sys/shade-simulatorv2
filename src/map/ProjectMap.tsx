@@ -56,6 +56,41 @@ function buildSceneFeatureCollection(objects: SceneObject[]): Record<string, unk
   };
 }
 
+/**
+ * Approximate a geographic circle as a GeoJSON polygon ring.
+ * 1° latitude ≈ 111 320 m everywhere; 1° longitude shrinks by cos(lat).
+ */
+function crownCircleRing(lat: number, lon: number, radiusM: number, steps = 32): [number, number][] {
+  const dLat = radiusM / 111_320;
+  const dLon = radiusM / (111_320 * Math.cos((lat * Math.PI) / 180));
+  const ring: [number, number][] = [];
+  for (let i = 0; i <= steps; i++) {
+    const angle = (2 * Math.PI * i) / steps;
+    ring.push([lon + dLon * Math.cos(angle), lat + dLat * Math.sin(angle)]);
+  }
+  return ring;
+}
+
+function buildTreeCrownFeatureCollection(objects: SceneObject[]): Record<string, unknown> {
+  return {
+    type: 'FeatureCollection',
+    features: objects.flatMap((object) => {
+      if (object.kind !== 'tree') return [];
+      return [
+        {
+          type: 'Feature',
+          id: object.id,
+          properties: { id: object.id },
+          geometry: {
+            type: 'Polygon',
+            coordinates: [crownCircleRing(object.position.lat, object.position.lon, object.crownRadiusM)],
+          },
+        },
+      ];
+    }),
+  };
+}
+
 function translateFootprint(
   building: BuildingObject,
   nextPosition: LatLon,
@@ -152,17 +187,41 @@ export function ProjectMap() {
         filter: ['==', ['get', 'kind'], 'building'],
         paint: { 'line-color': '#4c321f', 'line-width': 2 },
       });
+      map.addSource('tree-crowns', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'tree-crowns-fill',
+        type: 'fill',
+        source: 'tree-crowns',
+        paint: { 'fill-color': '#2f7d32', 'fill-opacity': 0.25 },
+      });
+      map.addLayer({
+        id: 'tree-crowns-outline',
+        type: 'line',
+        source: 'tree-crowns',
+        paint: { 'line-color': '#145a18', 'line-width': 1.5, 'line-dasharray': [3, 2] },
+      });
+      map.addLayer({
+        id: 'tree-crowns-selected',
+        type: 'fill',
+        source: 'tree-crowns',
+        filter: ['==', ['get', 'id'], ''],
+        paint: { 'fill-color': '#76c442', 'fill-opacity': 0.45 },
+      });
+
       map.addLayer({
         id: 'trees-circle',
         type: 'circle',
         source: 'scene-objects',
         filter: ['==', ['get', 'kind'], 'tree'],
         paint: {
-          'circle-radius': 9,
+          'circle-radius': 6,
           'circle-color': '#2f7d32',
-          'circle-opacity': 0.8,
+          'circle-opacity': 0.9,
           'circle-stroke-color': '#145a18',
-          'circle-stroke-width': 2,
+          'circle-stroke-width': 1.5,
         },
       });
       map.addLayer({
@@ -177,7 +236,7 @@ export function ProjectMap() {
         const id = e.features?.[0]?.properties?.id as string | undefined;
         if (id) setSelectedPVArrayId(id);
       });
-      for (const layer of ['buildings-fill', 'trees-circle']) {
+      for (const layer of ['buildings-fill', 'trees-circle', 'tree-crowns-fill']) {
         map.on('click', layer, (e) => {
           const id = e.features?.[0]?.properties?.id as string | undefined;
           if (id) setSelectedSceneObjectId(id);
@@ -240,6 +299,11 @@ export function ProjectMap() {
         GeoJSONSource['setData']
       >[0],
     );
+    (map.getSource('tree-crowns') as GeoJSONSource).setData(
+      buildTreeCrownFeatureCollection(project.scene.objects) as unknown as Parameters<
+        GeoJSONSource['setData']
+      >[0],
+    );
   }, [project.pv.arrays, project.pv.panelTypes, project.scene.objects, mapLoaded]);
 
   useEffect(() => {
@@ -249,6 +313,7 @@ export function ProjectMap() {
     const sceneFilter = ['==', ['get', 'id'], selectedSceneObjectId ?? ''] as unknown as maplibregl.FilterSpecification;
     map.setFilter('pv-arrays-selected-fill', pvFilter);
     map.setFilter('scene-selected', sceneFilter);
+    map.setFilter('tree-crowns-selected', sceneFilter);
   }, [selectedPVArrayId, selectedSceneObjectId, mapLoaded]);
 
   useEffect(() => {
