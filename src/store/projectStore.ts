@@ -97,7 +97,13 @@ export type AddMPPTInput = Partial<Omit<MPPT, 'id'>>;
 interface ProjectStoreState {
   project: Project;
   activeTab: ProjectTab;
+  selectedSceneObjectId: string | null;
+  selectedPVArrayId: string | null;
+  objectMapAddKind: 'tree' | 'building' | null;
   setActiveTab: (tab: ProjectTab) => void;
+  setSelectedSceneObjectId: (id: string | null) => void;
+  setSelectedPVArrayId: (id: string | null) => void;
+  setObjectMapAddKind: (kind: 'tree' | 'building' | null) => void;
   setLocation: (location: Location) => void;
   ensureDefaultPanelType: () => string;
   addSceneObject: (input: AddSceneObjectInput) => SceneObject;
@@ -143,7 +149,13 @@ function defaultBuildingFootprint(center: { lat: number; lon: number }): [number
 export const useProjectStore = create<ProjectStoreState>((set) => ({
   project: createProject({ name: 'Nieuw project', location: initialLocation }),
   activeTab: 'locatie',
+  selectedSceneObjectId: null,
+  selectedPVArrayId: null,
+  objectMapAddKind: null,
   setActiveTab: (tab) => set({ activeTab: tab }),
+  setSelectedSceneObjectId: (id) => set({ selectedSceneObjectId: id }),
+  setSelectedPVArrayId: (id) => set({ selectedPVArrayId: id }),
+  setObjectMapAddKind: (kind) => set({ objectMapAddKind: kind }),
   setLocation: (location) =>
     set((state) => ({
       project: bumpProject({
@@ -185,6 +197,7 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
               crownRadiusM: input.crownRadiusM ?? 3,
               trunkHeightM: input.trunkHeightM ?? 2,
               density: input.density ?? 0.7,
+              undergrowth: input.undergrowth ?? 'grass',
               deciduous: input.deciduous ?? true,
               kind: 'tree',
             })
@@ -204,6 +217,8 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
             objects: [...state.project.scene.objects, created],
           },
         }),
+        selectedSceneObjectId: created.id,
+        objectMapAddKind: null,
       };
     });
     if (!created) throw new Error('Could not create scene object');
@@ -234,6 +249,8 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
           objects: state.project.scene.objects.filter((item) => item.id !== id),
         },
       }),
+      selectedSceneObjectId:
+        state.selectedSceneObjectId === id ? state.project.scene.objects.find((item) => item.id !== id)?.id ?? null : state.selectedSceneObjectId,
     })),
   addPanelType: (input = {}) => {
     let created: PanelType | null = null;
@@ -331,6 +348,7 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
             arrays: [...state.project.pv.arrays, created],
           },
         }),
+        selectedPVArrayId: created.id,
       };
     });
     if (!created) throw new Error('Could not create PV array');
@@ -360,6 +378,8 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
           arrays: state.project.pv.arrays.filter((item) => item.id !== id),
         },
       }),
+      selectedPVArrayId:
+        state.selectedPVArrayId === id ? state.project.pv.arrays.find((item) => item.id !== id)?.id ?? null : state.selectedPVArrayId,
     })),
   addInverter: (input = {}) => {
     let created: Inverter | null = null;
@@ -509,5 +529,11 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
         }),
       };
     }),
-  replaceProject: (project) => set({ project }),
+  replaceProject: (project) =>
+    set({
+      project,
+      selectedSceneObjectId: project.scene.objects[0]?.id ?? null,
+      selectedPVArrayId: project.pv.arrays[0]?.id ?? null,
+      objectMapAddKind: null,
+    }),
 }));

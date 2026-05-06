@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { PVArrayMap } from '../map/PVArrayMap';
 import { getArrayDimensions } from '../map/pvArrayGeometry';
 import { PANEL_DATABASE } from '../model/panelDatabase';
 import { useProjectStore } from '../store/projectStore';
-import type { LatLon, PanelType, PVArray } from '../model/schema';
+import type { PanelType, PVArray } from '../model/schema';
 
 type NumberField = Extract<
   keyof PVArray,
@@ -36,7 +35,8 @@ export function PVArraysTab() {
   const updatePanelType = useProjectStore((s) => s.updatePanelType);
   const removePanelType = useProjectStore((s) => s.removePanelType);
   const ensureDefaultPanelType = useProjectStore((s) => s.ensureDefaultPanelType);
-  const [selectedId, setSelectedId] = useState<string | null>(project.pv.arrays[0]?.id ?? null);
+  const selectedId = useProjectStore((s) => s.selectedPVArrayId);
+  const setSelectedId = useProjectStore((s) => s.setSelectedPVArrayId);
   const [selectedPanelTypeId, setSelectedPanelTypeId] = useState<string | null>(
     project.pv.panelTypes[0]?.id ?? null,
   );
@@ -49,7 +49,7 @@ export function PVArraysTab() {
     if (!selectedId || !project.pv.arrays.some((array) => array.id === selectedId)) {
       setSelectedId(project.pv.arrays[0]?.id ?? null);
     }
-  }, [project.pv.arrays, selectedId]);
+  }, [project.pv.arrays, selectedId, setSelectedId]);
 
   useEffect(() => {
     if (!selectedPanelTypeId || !project.pv.panelTypes.some((panelType) => panelType.id === selectedPanelTypeId)) {
@@ -75,11 +75,6 @@ export function PVArraysTab() {
         : null,
     [selectedArray, selectedPanelType],
   );
-
-  const mapCenter: LatLon = {
-    lat: project.location.lat,
-    lon: project.location.lon,
-  };
 
   const handleAddArray = () => {
     const created = addPVArray();
@@ -131,7 +126,7 @@ export function PVArraysTab() {
   };
 
   return (
-    <div className="pv-arrays-tab">
+    <div className="panel-content pv-arrays-tab">
       <aside className="editor-sidebar">
         <header className="editor-header">
           <div>
@@ -478,18 +473,6 @@ export function PVArraysTab() {
           )}
         </section>
       </aside>
-
-      <div className="pv-array-map-container">
-        <PVArrayMap
-          arrays={project.pv.arrays}
-          panelTypes={project.pv.panelTypes}
-          selectedId={selectedId}
-          center={mapCenter}
-          onSelect={setSelectedId}
-          onMove={(id, position) => updatePVArray(id, { position })}
-          onRotate={(id, azimuthDeg) => updatePVArray(id, { azimuthDeg })}
-        />
-      </div>
     </div>
   );
 }

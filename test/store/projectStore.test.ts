@@ -10,6 +10,9 @@ describe('projectStore', () => {
     useProjectStore.setState({
       project: createProject({ name: 'Reset', location: validLocation }),
       activeTab: 'locatie',
+      selectedSceneObjectId: null,
+      selectedPVArrayId: null,
+      objectMapAddKind: null,
     });
   });
 
@@ -46,6 +49,7 @@ describe('projectStore', () => {
     });
     useProjectStore.getState().replaceProject(newProject);
     expect(useProjectStore.getState().project.id).toBe('proj_other');
+    expect(useProjectStore.getState().objectMapAddKind).toBeNull();
   });
 
   it('creates a default panel type and PV array', () => {

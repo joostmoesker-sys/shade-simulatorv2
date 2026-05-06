@@ -5,6 +5,14 @@ import type { BuildingObject, SceneObject, TreeObject } from '../model/schema';
 
 type TreeNumberField = Extract<keyof TreeObject, 'heightM' | 'crownRadiusM' | 'trunkHeightM' | 'density'>;
 type BuildingNumberField = Extract<keyof BuildingObject, 'heightM'>;
+type Undergrowth = TreeObject['undergrowth'];
+
+const UNDERGROWTH_OPTIONS: { value: Undergrowth; label: string }[] = [
+  { value: 'none', label: 'Geen ondergroei' },
+  { value: 'grass', label: 'Gras / laag' },
+  { value: 'shrubs', label: 'Struiken' },
+  { value: 'dense', label: 'Dichte ondergroei' },
+];
 
 function objectLabel(object: SceneObject): string {
   return object.kind === 'tree' ? 'Boom' : 'Gebouw';
@@ -15,7 +23,10 @@ export function ObjectsTab() {
   const addSceneObject = useProjectStore((s) => s.addSceneObject);
   const updateSceneObject = useProjectStore((s) => s.updateSceneObject);
   const removeSceneObject = useProjectStore((s) => s.removeSceneObject);
-  const [selectedId, setSelectedId] = useState<string | null>(project.scene.objects[0]?.id ?? null);
+  const selectedId = useProjectStore((s) => s.selectedSceneObjectId);
+  const setSelectedId = useProjectStore((s) => s.setSelectedSceneObjectId);
+  const objectMapAddKind = useProjectStore((s) => s.objectMapAddKind);
+  const setObjectMapAddKind = useProjectStore((s) => s.setObjectMapAddKind);
   const [footprintText, setFootprintText] = useState('');
   const [footprintError, setFootprintError] = useState<string | null>(null);
 
@@ -25,7 +36,7 @@ export function ObjectsTab() {
     if (!selectedId || !project.scene.objects.some((object) => object.id === selectedId)) {
       setSelectedId(project.scene.objects[0]?.id ?? null);
     }
-  }, [project.scene.objects, selectedId]);
+  }, [project.scene.objects, selectedId, setSelectedId]);
 
   useEffect(() => {
     if (selectedObject?.kind === 'building') {
@@ -67,7 +78,7 @@ export function ObjectsTab() {
   };
 
   return (
-    <div className="editor-page">
+    <div className="panel-content editor-page">
       <aside className="editor-sidebar">
         <header className="editor-header">
           <div>
@@ -80,6 +91,20 @@ export function ObjectsTab() {
             </button>
             <button type="button" onClick={() => handleAdd('building')}>
               Gebouw toevoegen
+            </button>
+            <button
+              type="button"
+              aria-pressed={objectMapAddKind === 'tree'}
+              onClick={() => setObjectMapAddKind(objectMapAddKind === 'tree' ? null : 'tree')}
+            >
+              Boom op kaart
+            </button>
+            <button
+              type="button"
+              aria-pressed={objectMapAddKind === 'building'}
+              onClick={() => setObjectMapAddKind(objectMapAddKind === 'building' ? null : 'building')}
+            >
+              Gebouw op kaart
             </button>
           </div>
         </header>
@@ -192,6 +217,23 @@ export function ObjectsTab() {
                     }
                   />
                   Bladverliezend
+                </label>
+                <label>
+                  Ondergroei
+                  <select
+                    value={selectedObject.undergrowth}
+                    onChange={(e) =>
+                      updateSceneObject(selectedObject.id, {
+                        undergrowth: e.target.value as Undergrowth,
+                      } as Partial<SceneObject>)
+                    }
+                  >
+                    {UNDERGROWTH_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </>
             ) : (

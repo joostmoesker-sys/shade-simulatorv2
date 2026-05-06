@@ -12,6 +12,9 @@ describe('<ProjectFileActions>', () => {
     useProjectStore.setState({
       project: createProject({ name: 'Demo', location: validLocation, id: 'proj_demo' }),
       activeTab: 'locatie',
+      selectedSceneObjectId: null,
+      selectedPVArrayId: null,
+      objectMapAddKind: null,
     });
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => 'blob:test'),

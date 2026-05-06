@@ -3,6 +3,7 @@ import { InvertersTab } from './components/InvertersTab';
 import { ObjectsTab } from './components/ObjectsTab';
 import { PVArraysTab } from './components/PVArraysTab';
 import { ProjectFileActions } from './components/ProjectFileActions';
+import { ProjectMap } from './map/ProjectMap';
 import { PROJECT_TABS, useProjectStore } from './store/projectStore';
 
 import './app.css';
@@ -32,19 +33,22 @@ export function App() {
         ))}
       </nav>
       <main className="app-main">
-        {activeTab === 'locatie' && <LocationTab />}
-        {activeTab === 'objecten' && <ObjectsTab />}
-        {activeTab === 'pv-arrays' && <PVArraysTab />}
-        {activeTab === 'inverters' && <InvertersTab />}
-        {activeTab !== 'locatie' &&
-          activeTab !== 'objecten' &&
-          activeTab !== 'pv-arrays' &&
-          activeTab !== 'inverters' && (
-          <div className="placeholder">
-            <h2>{PROJECT_TABS.find((t) => t.id === activeTab)?.label}</h2>
-            <p>Deze stap wordt geïmplementeerd in een latere fase.</p>
-          </div>
-          )}
+        <ProjectMap />
+        <section className="app-panel" aria-label="Projecteigenschappen">
+          {activeTab === 'locatie' && <LocationTab />}
+          {activeTab === 'objecten' && <ObjectsTab />}
+          {activeTab === 'pv-arrays' && <PVArraysTab />}
+          {activeTab === 'inverters' && <InvertersTab />}
+          {activeTab !== 'locatie' &&
+            activeTab !== 'objecten' &&
+            activeTab !== 'pv-arrays' &&
+            activeTab !== 'inverters' && (
+              <div className="placeholder">
+                <h2>{PROJECT_TABS.find((t) => t.id === activeTab)?.label}</h2>
+                <p>Deze stap wordt geïmplementeerd in een latere fase.</p>
+              </div>
+            )}
+        </section>
       </main>
     </div>
   );

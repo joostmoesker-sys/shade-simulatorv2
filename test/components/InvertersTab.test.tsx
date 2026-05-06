@@ -12,6 +12,9 @@ describe('<InvertersTab>', () => {
     useProjectStore.setState({
       project: createProject({ name: 'Demo', location: validLocation, id: 'proj_demo' }),
       activeTab: 'inverters',
+      selectedSceneObjectId: null,
+      selectedPVArrayId: null,
+      objectMapAddKind: null,
     });
   });
 

@@ -32,6 +32,9 @@ describe('<LocationTab>', () => {
     useProjectStore.setState({
       project: createProject({ name: 'Demo', location: validLocation, id: 'proj_demo' }),
       activeTab: 'locatie',
+      selectedSceneObjectId: null,
+      selectedPVArrayId: null,
+      objectMapAddKind: null,
     });
     vi.mocked(geocode).mockReset();
   });
@@ -40,7 +43,7 @@ describe('<LocationTab>', () => {
     render(<LocationTab />);
     expect(screen.getByLabelText('Adres zoeken')).toBeInTheDocument();
     expect(screen.getByText('52.00000')).toBeInTheDocument();
-    expect(screen.getByTestId('osm-map-mock')).toHaveTextContent('52,5');
+    expect(screen.getByText(/gedeelde kaart/)).toBeInTheDocument();
   });
 
   it('runs a geocode search and lets the user pick a result', async () => {

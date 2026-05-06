@@ -30,14 +30,15 @@ describe('<PVArraysTab>', () => {
     useProjectStore.setState({
       project: createProject({ name: 'Demo', location: validLocation, id: 'proj_demo' }),
       activeTab: 'pv-arrays',
+      selectedSceneObjectId: null,
+      selectedPVArrayId: null,
+      objectMapAddKind: null,
     });
   });
 
   it('starts empty, shows the map, and creates a default PV array', () => {
     render(<PVArraysTab />);
 
-    // Map is always rendered.
-    expect(screen.getByTestId('pv-array-map-mock')).toBeInTheDocument();
     expect(screen.getByText(/Nog geen PV arrays/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Array toevoegen' }));
@@ -66,17 +67,16 @@ describe('<PVArraysTab>', () => {
     });
   });
 
-  it('passes all arrays and the selectedId to the map', () => {
+  it('lists all arrays and tracks the globally selected array', () => {
     const a1 = useProjectStore.getState().addPVArray({ name: 'Dak 1' });
     const a2 = useProjectStore.getState().addPVArray({ name: 'Dak 2' });
     render(<PVArraysTab />);
 
-    const mapEl = screen.getByTestId('pv-array-map-mock');
-    // Both arrays rendered inside the mock map.
-    expect(screen.getByTestId(`map-array-${a1.id}`)).toBeInTheDocument();
-    expect(screen.getByTestId(`map-array-${a2.id}`)).toBeInTheDocument();
-    // First array is auto-selected.
-    expect(mapEl.dataset.selectedId).toBe(a1.id);
+    expect(screen.getByRole('button', { name: /Dak 1/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Dak 2/ })).toHaveAttribute('aria-current', 'true');
+    fireEvent.click(screen.getByRole('button', { name: /Dak 1/ }));
+    expect(useProjectStore.getState().selectedPVArrayId).toBe(a1.id);
+    expect(useProjectStore.getState().selectedPVArrayId).not.toBe(a2.id);
   });
 
   it('adds a panel type from the database and supports manual editing', () => {

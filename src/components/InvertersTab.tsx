@@ -48,7 +48,7 @@ export function InvertersTab() {
   };
 
   return (
-    <div className="editor-page">
+    <div className="panel-content editor-page">
       <aside className="editor-sidebar">
         <header className="editor-header">
           <div>

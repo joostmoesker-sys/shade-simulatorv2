@@ -99,8 +99,64 @@ body,
 }
 
 .app-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
   min-height: 0;
   overflow: hidden;
+}
+.project-map-wrap {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+.project-map {
+  width: 100%;
+  height: 100%;
+}
+.map-toolbar {
+  position: absolute;
+  z-index: 2;
+  top: 0.75rem;
+  left: 0.75rem;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.map-toolbar button {
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  font: inherit;
+}
+.map-toolbar button[aria-pressed='true'] {
+  background: var(--color-accent);
+  color: white;
+}
+.map-mode-banner {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 0.75rem;
+  transform: translateX(-50%);
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(31, 95, 166, 0.95);
+  color: white;
+  font-size: 0.85rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+.app-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
 }
 
 .location-tab,
@@ -110,11 +166,18 @@ body,
   grid-template-columns: 320px 1fr;
   height: 100%;
 }
+.panel-content.location-tab,
+.panel-content.pv-arrays-tab,
+.panel-content.editor-page {
+  display: block;
+  height: auto;
+}
 .location-sidebar,
 .editor-sidebar {
   padding: 1rem;
   background: var(--color-surface);
-  border-right: 1px solid var(--color-border);
+  border-right: none;
+  border-bottom: 1px solid var(--color-border);
   overflow-y: auto;
 }
 .location-sidebar h2,
@@ -289,7 +352,6 @@ body,
   padding: 1rem;
 }
 .editor-detail .property-form {
-  max-width: 760px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -420,6 +482,22 @@ body,
    the inner div (first child) receives the CSS rotation. */
 .azimuth-arrow-marker {
   pointer-events: none;
+}
+.object-move-handle {
+  width: 28px;
+  height: 28px;
+  background: #2f7d32;
+  border: 2px solid white;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: move;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.object-move-handle::before {
+  content: '✛';
+  color: white;
+  font-size: 15px;
 }
 
 .placeholder {
