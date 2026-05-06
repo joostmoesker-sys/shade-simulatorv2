@@ -8,7 +8,8 @@ const TARGET_SOC_FRACTION = 0.5;
 const DEFAULT_GRID_EXPORT_KW = 17;
 
 // 2025 NL EPEX Spot / ENTSO-E day-ahead actual monthly average prices (EUR/MWh).
-// Source: ENTSO-E Transparency Platform, Netherlands bidding zone (BZN|NL), 2025.
+// Source: ENTSO-E Transparency Platform, Netherlands bidding zone (BZN|NL), 2025 historical data.
+// These are real observed wholesale market prices; they do not include taxes or grid fees.
 const NL_MONTHLY_AVG_EUR_MWH_2025 = [
   105.26, // Jan – cold winter, high gas demand
   121.56, // Feb – peak winter prices

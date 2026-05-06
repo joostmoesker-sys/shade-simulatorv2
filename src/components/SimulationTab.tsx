@@ -123,11 +123,11 @@ function IVPVChart({ curve, arrayName }: IVPVChartProps) {
         {arrayName} — I–V &amp; P–V curves (
         {hasShadedCurve ? (
           <>
-            <span className="iv-pv-chart__legend-shade">▬</span> onbeschaduwd &nbsp;
-            <span className="iv-pv-chart__legend-unshade">▬</span> beschaduwd
+            <span className="iv-pv-chart__legend-unshaded">▬</span> onbeschaduwd &nbsp;
+            <span className="iv-pv-chart__legend-shaded">▬</span> beschaduwd
           </>
         ) : (
-          <span className="iv-pv-chart__legend-shade">▬</span>
+          <span className="iv-pv-chart__legend-unshaded">▬</span>
         )}
         ){' '}
         <small>

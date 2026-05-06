@@ -857,10 +857,10 @@ body,
   color: var(--color-muted);
   font-size: 0.7rem;
 }
-.iv-pv-chart__legend-shade {
+.iv-pv-chart__legend-unshaded {
   color: #f59e0b;
 }
-.iv-pv-chart__legend-unshade {
+.iv-pv-chart__legend-shaded {
   color: #ef4444;
 }
 .iv-pv-chart__svg {
