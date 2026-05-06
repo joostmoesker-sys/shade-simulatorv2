@@ -21,7 +21,7 @@ describe('<WiringTab>', () => {
   it('asks for an inverter before wiring can start', () => {
     render(<WiringTab />);
 
-    expect(screen.getByText("Definieer eerst een inverter met MPPT's.")).toBeInTheDocument();
+    expect(screen.getByText('Definieer eerst een inverter met MPPTs.')).toBeInTheDocument();
   });
 
   it('shows the panel grid after clicking "Nieuwe string"', () => {

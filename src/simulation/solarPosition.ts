@@ -23,7 +23,7 @@ function dayOfYear(date: Date): number {
 /**
  * NOAA-style solar position approximation.
  *
- * Accuracy is sufficient for an interactive phase-4 preview and keeps the
+ * Accuracy is sufficient for the interactive simulation preview and keeps the
  * simulator fully client-side without adding a solar ephemeris dependency.
  */
 export function calculateSolarPosition(date: Date, location: LatLon): SolarPosition {

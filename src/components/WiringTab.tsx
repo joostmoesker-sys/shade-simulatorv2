@@ -277,7 +277,7 @@ export function WiringTab() {
               )}
             </ul>
           ) : (
-            <p className="empty-state">Definieer eerst een inverter met MPPT's.</p>
+            <p className="empty-state">Definieer eerst een inverter met MPPTs.</p>
           )}
         </aside>
 

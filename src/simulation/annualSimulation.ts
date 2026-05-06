@@ -5,6 +5,8 @@ import { calculateSolarPosition } from './solarPosition';
 import { fetchOpenMeteoArchiveWeather, normalizeWeather, type HourlyWeatherSample } from './weather';
 import { simulateProjectElectricalHour } from './pvPerformance';
 
+const WATT_HOURS_TO_KWH = 1 / 1000;
+
 export interface AnnualSimulationOptions {
   year?: number;
   weatherSamples?: HourlyWeatherSample[];
@@ -72,15 +74,16 @@ export async function simulateProjectYear(
     const electrical = simulateProjectElectricalHour(project, arrayInputs, weather.temperatureC, weather.windSpeedMs);
     const hours = sampleDurationHours(weatherSamples, index);
     const month = date.getUTCMonth();
-    const acKwh = electrical.pAcW * hours / 1000;
+    const acKwh = electrical.pAcW * hours * WATT_HOURS_TO_KWH;
 
     totals.acKwh += acKwh;
-    totals.dcKwh += electrical.pDcW * hours / 1000;
-    totals.shadeLossKwh += electrical.shadeLossW * hours / 1000;
-    totals.mismatchLossKwh += electrical.mismatchLossW * hours / 1000;
-    totals.clippingLossKwh += electrical.clippingLossW * hours / 1000;
-    totals.voltageCurrentLossKwh += (electrical.voltageLimitedLossW + electrical.currentLimitedLossW) * hours / 1000;
-    totals.standbyLossKwh += electrical.standbyLossW * hours / 1000;
+    totals.dcKwh += electrical.pDcW * hours * WATT_HOURS_TO_KWH;
+    totals.shadeLossKwh += electrical.shadeLossW * hours * WATT_HOURS_TO_KWH;
+    totals.mismatchLossKwh += electrical.mismatchLossW * hours * WATT_HOURS_TO_KWH;
+    totals.clippingLossKwh += electrical.clippingLossW * hours * WATT_HOURS_TO_KWH;
+    totals.voltageCurrentLossKwh +=
+      (electrical.voltageLimitedLossW + electrical.currentLimitedLossW) * hours * WATT_HOURS_TO_KWH;
+    totals.standbyLossKwh += electrical.standbyLossW * hours * WATT_HOURS_TO_KWH;
     monthlyAcKwh[month] += acKwh;
   }
 
