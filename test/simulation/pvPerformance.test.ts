@@ -50,6 +50,15 @@ const inverter: Inverter = {
   mppts: [mppt],
 };
 
+function countPowerPeaks(points: Array<{ p: number }>): number {
+  const maxPower = Math.max(...points.map((point) => point.p));
+  return points.reduce((count, point, index) => {
+    const prev = points[index - 1];
+    const next = points[index + 1];
+    return prev && next && point.p > prev.p && point.p > next.p && point.p > maxPower * 0.05 ? count + 1 : count;
+  }, 0);
+}
+
 describe('PV electrical performance', () => {
   it('applies irradiance, temperature and shade to panel output', () => {
     const sunny = calculatePanelElectricalOutput(
@@ -211,5 +220,79 @@ describe('PV electrical performance', () => {
     expect(curve!.shaded.length).toBeGreaterThan(0);
     expect(curve!.mppW).toBeGreaterThan(0);
     expect(curve!.mppA).toBeGreaterThan(panelType.impA);
+  });
+
+  it('models bypass diode multi-peak P–V behavior for shaded MPPT strings', () => {
+    const project = {
+      pv: {
+        panelTypes: [panelType],
+        arrays: [
+          {
+            id: 'sunny',
+            name: 'Sunny',
+            panelTypeId: panelType.id,
+            position: { lat: 52, lon: 5 },
+            rows: 1,
+            columns: 2,
+            orientation: 'portrait',
+            azimuthDeg: 180,
+            tiltDeg: 30,
+            baseHeightM: 0,
+            panelGapM: 0.02,
+            rowGapM: 0.02,
+          },
+          {
+            id: 'shaded',
+            name: 'Shaded',
+            panelTypeId: panelType.id,
+            position: { lat: 52, lon: 5 },
+            rows: 1,
+            columns: 2,
+            orientation: 'portrait',
+            azimuthDeg: 180,
+            tiltDeg: 30,
+            baseHeightM: 0,
+            panelGapM: 0.02,
+            rowGapM: 0.02,
+          },
+        ],
+      },
+      electrical: {
+        inverters: [inverter],
+        wiring: [
+          {
+            inverterId: inverter.id,
+            mpptId: mppt.id,
+            strings: [
+              {
+                id: 's1',
+                panels: [
+                  { arrayId: 'sunny', row: 0, column: 0 },
+                  { arrayId: 'sunny', row: 0, column: 1 },
+                  { arrayId: 'shaded', row: 0, column: 0 },
+                  { arrayId: 'shaded', row: 0, column: 1 },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    } as never;
+    const poa = { beamWm2: 800, diffuseWm2: 120, groundReflectedWm2: 20, totalWm2: 940, incidenceAngleDeg: 10 };
+    const curve = buildMPPTIVCurve(
+      project,
+      inverter.id,
+      mppt.id,
+      new Map([
+        ['sunny', { poa, shadeFactor: 0 }],
+        ['shaded', { poa, shadeFactor: 0.65 }],
+      ]),
+      20,
+      2,
+      240,
+    );
+
+    expect(curve).not.toBeNull();
+    expect(countPowerPeaks(curve!.shaded)).toBeGreaterThanOrEqual(2);
   });
 });

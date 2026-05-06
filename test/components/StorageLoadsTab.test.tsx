@@ -19,18 +19,16 @@ describe('<StorageLoadsTab>', () => {
     });
   });
 
-  it('adds typical phase 4 battery, EV and tariff profiles', () => {
+  it('adds typical phase 4 battery and EV profiles', () => {
     render(<StorageLoadsTab />);
 
     fireEvent.click(screen.getByRole('button', { name: '64 kWh accu toevoegen' }));
     fireEvent.click(screen.getByRole('button', { name: 'Typische EV toevoegen' }));
-    const addButtons = screen.getAllByRole('button', { name: 'Toevoegen' });
-    fireEvent.click(addButtons[addButtons.length - 1]);
 
     const project = useProjectStore.getState().project;
     expect(project.storage.batteries[0]).toMatchObject({ capacityKwh: 64, pChargeMaxKw: 10 });
     expect(project.loads.electricVehicles[0]).toMatchObject({ batteryCapacityKwh: 60, weekdayUseKwh: 6 });
-    expect(project.tariffs).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Tarieven' })).not.toBeInTheDocument();
   });
 
   it('updates EV charging settings', () => {

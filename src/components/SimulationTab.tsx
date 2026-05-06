@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import type { TariffProfile } from '../model/schema';
 import { runAnnualSimulation } from '../simulation/annualSimulation';
 import { calculatePlaneOfArrayIrradiance } from '../simulation/irradiance';
 import { buildMPPTIVCurve, type IVCurveResult } from '../simulation/pvPerformance';
@@ -9,6 +10,12 @@ import { normalizeWeather } from '../simulation/weather';
 import { useProjectStore } from '../store/projectStore';
 
 const MINUTES_PER_DAY = 24 * 60;
+const DEFAULT_DYNAMIC_TARIFF_INPUTS = {
+  energyTaxEurPerKwh: 0.1316,
+  importMarkupEurPerKwh: 0.03,
+  exportMarkupEurPerKwh: 0,
+} as const;
+type DynamicTariffNumberField = keyof typeof DEFAULT_DYNAMIC_TARIFF_INPUTS;
 
 function dateInputValue(timestamp: string): string {
   const date = new Date(timestamp);
@@ -47,6 +54,11 @@ function kwhLabel(value: number): string {
 
 function euroLabel(value: number): string {
   return `€${value.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`;
+}
+
+function numberValue(rawValue: string): number | null {
+  const value = Number(rawValue);
+  return Number.isFinite(value) ? value : null;
 }
 
 function MonthlyEnergyChart({ values }: { values: number[] }) {
@@ -232,8 +244,16 @@ export function SimulationTab() {
   const setTimestamp = useProjectStore((s) => s.setSimulationPreviewTimestamp);
   const annualResult = useProjectStore((s) => s.annualSimulationResult);
   const setAnnualResult = useProjectStore((s) => s.setAnnualSimulationResult);
+  const addTariff = useProjectStore((s) => s.addTariff);
+  const updateTariff = useProjectStore((s) => s.updateTariff);
   const [annualError, setAnnualError] = useState<string | null>(null);
   const [isRunningAnnual, setIsRunningAnnual] = useState(false);
+  const tariff = project.tariffs[0] ?? null;
+  const dynamicTariffInputs: Pick<TariffProfile, DynamicTariffNumberField> = {
+    energyTaxEurPerKwh: tariff?.energyTaxEurPerKwh ?? DEFAULT_DYNAMIC_TARIFF_INPUTS.energyTaxEurPerKwh,
+    importMarkupEurPerKwh: tariff?.importMarkupEurPerKwh ?? DEFAULT_DYNAMIC_TARIFF_INPUTS.importMarkupEurPerKwh,
+    exportMarkupEurPerKwh: tariff?.exportMarkupEurPerKwh ?? DEFAULT_DYNAMIC_TARIFF_INPUTS.exportMarkupEurPerKwh,
+  };
   const date = new Date(timestamp);
   const selectedDate = dateInputValue(timestamp);
   const selectedMinute = minuteOfDay(timestamp);
@@ -285,6 +305,14 @@ export function SimulationTab() {
     setTimestamp(timestampFromDateAndMinutes(selectedDate, minutes));
   };
 
+  const updateDynamicTariffInput = (field: DynamicTariffNumberField, rawValue: string) => {
+    const value = numberValue(rawValue);
+    if (value === null) return;
+    if (tariff) updateTariff(tariff.id, { [field]: value, dynamic: true });
+    else addTariff({ [field]: value, dynamic: true });
+    setAnnualResult(null);
+  };
+
   const hasCompleteElectricalModel =
     project.pv.arrays.length > 0 &&
     project.electrical.inverters.length > 0 &&
@@ -327,6 +355,44 @@ export function SimulationTab() {
         <button type="button" onClick={runAnnual} disabled={!hasCompleteElectricalModel || isRunningAnnual}>
           {isRunningAnnual ? 'Jaar 2025 wordt berekend…' : 'Bereken jaar 2025'}
         </button>
+        <fieldset className="simulation-tariff-controls">
+          <legend>Day-ahead kostenparameters</legend>
+          <p className="hint">
+            Inkoop = echte NL day-ahead prijs + belasting + inkoop opslag. Verkoop = day-ahead prijs + verkoop opslag.
+          </p>
+          <div className="field-grid">
+            <label>
+              Belasting €/kWh
+              <input
+                type="number"
+                min={0}
+                step={0.001}
+                value={dynamicTariffInputs.energyTaxEurPerKwh}
+                onChange={(e) => updateDynamicTariffInput('energyTaxEurPerKwh', e.target.value)}
+              />
+            </label>
+            <label>
+              Inkoop opslag €/kWh
+              <input
+                type="number"
+                min={0}
+                step={0.001}
+                value={dynamicTariffInputs.importMarkupEurPerKwh}
+                onChange={(e) => updateDynamicTariffInput('importMarkupEurPerKwh', e.target.value)}
+              />
+            </label>
+            <label>
+              Verkoop opslag €/kWh
+              <input
+                type="number"
+                min={0}
+                step={0.001}
+                value={dynamicTariffInputs.exportMarkupEurPerKwh}
+                onChange={(e) => updateDynamicTariffInput('exportMarkupEurPerKwh', e.target.value)}
+              />
+            </label>
+          </div>
+        </fieldset>
         {!hasCompleteElectricalModel && (
           <p className="hint">Voeg PV arrays, inverter(s) en bekabelde strings toe voor de jaarberekening.</p>
         )}

@@ -45,6 +45,21 @@ describe('<SimulationTab>', () => {
     expect(useProjectStore.getState().simulationPreviewTimestamp).toBe('2026-03-21T09:30:00.000Z');
   });
 
+  it('stores day-ahead tax and markup inputs for economic simulation', () => {
+    render(<SimulationTab />);
+
+    fireEvent.change(screen.getByLabelText('Belasting €/kWh'), { target: { value: '0.12' } });
+    fireEvent.change(screen.getByLabelText('Inkoop opslag €/kWh'), { target: { value: '0.025' } });
+    fireEvent.change(screen.getByLabelText('Verkoop opslag €/kWh'), { target: { value: '0.01' } });
+
+    expect(useProjectStore.getState().project.tariffs[0]).toMatchObject({
+      dynamic: true,
+      energyTaxEurPerKwh: 0.12,
+      importMarkupEurPerKwh: 0.025,
+      exportMarkupEurPerKwh: 0.01,
+    });
+  });
+
   it('lists POA and shade results for PV arrays', () => {
     useProjectStore.getState().addPVArray({ name: 'Dak zuid' });
     render(<SimulationTab />);

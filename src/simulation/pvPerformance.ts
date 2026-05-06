@@ -43,6 +43,7 @@ export interface ProjectElectricalHourResult extends InverterElectricalResult {
 
 const STC_IRRADIANCE_WM2 = 1000;
 const CURVE_INTERPOLATION_EPSILON = 1e-9;
+const BYPASS_DIODE_DROP_V = 0.5;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -304,30 +305,25 @@ export function buildPanelIVCurve(
   const iscShadedA = iscA * shadeMultiplier;
   const imppShadedA = imppA * shadeMultiplier;
 
-  /**
-   * Simplified single-diode model:
-   *   I(V) = Isc · (1 − exp((V − Voc) / Vt))
-   * where Vt is derived from the MPP constraint:
-   *   Vt = (Voc − Vmpp) / ln(Isc / (Isc − Impp))
-   */
-  const buildPoints = (isc: number, impp: number): IVPoint[] => {
-    if (isc < 1e-6 || impp < 1e-6 || impp >= isc) return [];
-    const vt = (vocV - vmppV) / Math.log(isc / (isc - impp));
-    if (!Number.isFinite(vt) || vt <= 0) return [];
-    const pts: IVPoint[] = [];
-    for (let k = 0; k <= pointCount; k++) {
-      const v = (k / pointCount) * vocV;
-      const i = Math.max(0, isc * (1 - Math.exp((v - vocV) / vt)));
-      pts.push({ v, i, p: v * i });
-    }
-    return pts;
-  };
-
-  const shaded = buildPoints(iscShadedA, imppShadedA);
-  const mpp = findCurveMPP(shaded.length > 0 ? shaded : buildPoints(iscA, imppA));
+  const unshaded = buildSingleDiodeCurve(vocV, vmppV, iscA, imppA, pointCount);
+  const shaded =
+    shadeFactor > 0 && panelType.bypassDiodes > 1
+      ? buildBypassPanelCurve(
+          panelType.bypassDiodes,
+          vocSingle,
+          vmppSingle,
+          iscA,
+          imppA,
+          shadeMultiplier,
+          shadeFactor,
+          panelsInSeries,
+          pointCount,
+        )
+      : buildSingleDiodeCurve(vocV, vmppV, iscShadedA, imppShadedA, pointCount);
+  const mpp = findCurveMPP(shaded.length > 0 ? shaded : unshaded);
 
   return {
-    unshaded: buildPoints(iscA, imppA),
+    unshaded,
     shaded,
     vocV,
     iscA,
@@ -339,6 +335,48 @@ export function buildPanelIVCurve(
     mppA: mpp.i,
     mppW: mpp.p,
   };
+}
+
+/**
+ * Simplified single-diode model:
+ *   I(V) = Isc · (1 − exp((V − Voc) / Vt))
+ * where Vt is derived from the MPP constraint:
+ *   Vt = (Voc − Vmpp) / ln(Isc / (Isc − Impp))
+ */
+function buildSingleDiodeCurve(vocV: number, vmppV: number, iscA: number, imppA: number, pointCount: number): IVPoint[] {
+  if (iscA < 1e-6 || imppA < 1e-6 || imppA >= iscA) return [];
+  const vt = (vocV - vmppV) / Math.log(iscA / (iscA - imppA));
+  if (!Number.isFinite(vt) || vt <= 0) return [];
+  const pts: IVPoint[] = [];
+  for (let k = 0; k <= pointCount; k++) {
+    const v = (k / pointCount) * vocV;
+    const i = Math.max(0, iscA * (1 - Math.exp((v - vocV) / vt)));
+    pts.push({ v, i, p: v * i });
+  }
+  return pts;
+}
+
+function buildBypassPanelCurve(
+  bypassDiodes: number,
+  vocSingle: number,
+  vmppSingle: number,
+  iscA: number,
+  imppA: number,
+  shadeMultiplier: number,
+  shadeFactor: number,
+  panelsInSeries: number,
+  pointCount: number,
+): IVPoint[] {
+  const sections = Math.max(1, Math.round(bypassDiodes));
+  const totalSections = Math.max(1, Math.round(panelsInSeries) * sections);
+  const shadedSections = Math.min(totalSections, Math.max(1, Math.ceil(clamp(shadeFactor, 0, 0.98) * totalSections)));
+  const sectionVoc = vocSingle / sections;
+  const sectionVmpp = vmppSingle / sections;
+  const sectionCurves = Array.from({ length: totalSections }, (_, sectionIndex) => {
+    const currentMultiplier = sectionIndex < shadedSections ? shadeMultiplier : 1;
+    return buildSingleDiodeCurve(sectionVoc, sectionVmpp, iscA * currentMultiplier, imppA * currentMultiplier, pointCount);
+  });
+  return seriesCurve(sectionCurves, pointCount, BYPASS_DIODE_DROP_V);
 }
 
 function findCurveMPP(points: IVPoint[]): IVPoint {
@@ -363,8 +401,8 @@ function currentAtVoltage(sorted: IVPoint[], voltage: number): number {
   return 0;
 }
 
-function voltageAtCurrent(sorted: IVPoint[], current: number): number {
-  if (current >= sorted[0].i) return sorted[0].v;
+function voltageAtCurrent(sorted: IVPoint[], current: number, bypassDropV = 0): number {
+  if (current >= sorted[0].i) return bypassDropV > 0 ? -bypassDropV : sorted[0].v;
   if (current <= sorted[sorted.length - 1].i) return sorted[sorted.length - 1].v;
   for (let index = 0; index < sorted.length - 1; index++) {
     const high = sorted[index];
@@ -377,15 +415,15 @@ function voltageAtCurrent(sorted: IVPoint[], current: number): number {
   return 0;
 }
 
-function seriesCurve(curves: IVPoint[][], pointCount: number): IVPoint[] {
+function seriesCurve(curves: IVPoint[][], pointCount: number, bypassDropV = BYPASS_DIODE_DROP_V): IVPoint[] {
   const usable = curves.filter((curve) => curve.length > 0);
   if (usable.length === 0) return [];
   const sortedCurves = usable.map((curve) => curve.slice().sort((a, b) => b.i - a.i));
-  const maxCurrent = Math.min(...sortedCurves.map((curve) => curve[0].i));
+  const maxCurrent = Math.max(...sortedCurves.map((curve) => curve[0].i));
   const points: IVPoint[] = [];
   for (let step = pointCount; step >= 0; step--) {
     const i = (step / pointCount) * maxCurrent;
-    const v = sortedCurves.reduce((sum, curve) => sum + voltageAtCurrent(curve, i), 0);
+    const v = Math.max(0, sortedCurves.reduce((sum, curve) => sum + voltageAtCurrent(curve, i, bypassDropV), 0));
     points.push({ v, i, p: v * i });
   }
   return points.sort((a, b) => a.v - b.v);
