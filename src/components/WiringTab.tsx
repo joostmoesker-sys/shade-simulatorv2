@@ -116,8 +116,12 @@ export function WiringTab() {
   const project = useProjectStore((s) => s.project);
   const addWiringString = useProjectStore((s) => s.addWiringString);
   const removeWiringString = useProjectStore((s) => s.removeWiringString);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [selectedArrayId, setSelectedArrayId] = useState<string>('');
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => {
+    const firstInverter = project.electrical.inverters[0];
+    const firstMPPT = firstInverter?.mppts[0];
+    return firstInverter && firstMPPT ? mpptKey(firstInverter.id, firstMPPT.id) : null;
+  });
+  const [selectedArrayId, setSelectedArrayId] = useState<string>(() => project.pv.arrays[0]?.id ?? '');
 
   const selected = useMemo(
     () => findSelectedMPPT(project.electrical.inverters, selectedKey),
@@ -139,12 +143,11 @@ export function WiringTab() {
   }, [project.pv.arrays, selectedArrayId]);
 
   useEffect(() => {
-    if (!selected) {
-      setSelectedKey(null);
-      return;
+    const nextKey = selected ? mpptKey(selected.inverter.id, selected.mppt.id) : null;
+    if (selectedKey !== nextKey) {
+      setSelectedKey(nextKey);
     }
-    setSelectedKey(mpptKey(selected.inverter.id, selected.mppt.id));
-  }, [selected]);
+  }, [selected, selectedKey]);
 
   const addString = (panels: WiringString['panels']) => {
     if (!selected) return;
