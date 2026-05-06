@@ -14,6 +14,7 @@ export function App() {
   const activeTab = useProjectStore((s) => s.activeTab);
   const setActiveTab = useProjectStore((s) => s.setActiveTab);
   const projectName = useProjectStore((s) => s.project.name);
+  const panelOnly = activeTab === 'bekabeling';
 
   return (
     <div className="app-shell">
@@ -34,9 +35,9 @@ export function App() {
           </button>
         ))}
       </nav>
-      <main className="app-main">
-        <ProjectMap />
-        <section className="app-panel" aria-label="Projecteigenschappen">
+      <main className={`app-main${panelOnly ? ' app-main--panel-only' : ''}`}>
+        {!panelOnly && <ProjectMap />}
+        <section className={`app-panel${panelOnly ? ' app-panel--full' : ''}`} aria-label="Projecteigenschappen">
           {activeTab === 'locatie' && <LocationTab />}
           {activeTab === 'objecten' && <ObjectsTab />}
           {activeTab === 'pv-arrays' && <PVArraysTab />}

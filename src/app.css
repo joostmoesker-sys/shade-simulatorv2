@@ -104,6 +104,9 @@ body,
   min-height: 0;
   overflow: hidden;
 }
+.app-main--panel-only {
+  grid-template-columns: minmax(0, 1fr);
+}
 .project-map-wrap {
   position: relative;
   min-width: 0;
@@ -157,6 +160,10 @@ body,
   overflow-y: auto;
   background: var(--color-surface);
   border-left: 1px solid var(--color-border);
+}
+.app-panel--full {
+  overflow: hidden;
+  border-left: none;
 }
 
 .location-tab,
@@ -641,6 +648,28 @@ body,
 .wiring-warnings ul {
   margin: 0;
   padding-left: 1.2rem;
+}
+
+@media (max-width: 1100px) {
+  .wiring-layout {
+    grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  }
+  .wiring-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wiring-strings-panel {
+    border-top: 1px solid var(--color-border);
+  }
+}
+
+@media (max-width: 760px) {
+  .wiring-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wiring-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
 }
 .sub-editor legend {
   color: var(--color-muted);
