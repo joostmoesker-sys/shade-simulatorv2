@@ -47,4 +47,31 @@ describe('projectStore', () => {
     useProjectStore.getState().replaceProject(newProject);
     expect(useProjectStore.getState().project.id).toBe('proj_other');
   });
+
+  it('creates a default panel type and PV array', () => {
+    const array = useProjectStore.getState().addPVArray();
+    const project = useProjectStore.getState().project;
+    expect(project.pv.panelTypes).toHaveLength(1);
+    expect(project.pv.arrays).toHaveLength(1);
+    expect(project.pv.arrays[0]).toMatchObject({
+      id: array.id,
+      rows: 2,
+      columns: 4,
+      azimuthDeg: 180,
+      tiltDeg: 35,
+    });
+  });
+
+  it('updates and removes a PV array', () => {
+    const array = useProjectStore.getState().addPVArray({ name: 'Dak zuid' });
+    useProjectStore.getState().updatePVArray(array.id, { rows: 3, columns: 5 });
+    expect(useProjectStore.getState().project.pv.arrays[0]).toMatchObject({
+      name: 'Dak zuid',
+      rows: 3,
+      columns: 5,
+    });
+
+    useProjectStore.getState().removePVArray(array.id);
+    expect(useProjectStore.getState().project.pv.arrays).toHaveLength(0);
+  });
 });

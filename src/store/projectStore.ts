@@ -1,12 +1,18 @@
 /**
- * Global project store. Phase 1 owns only the active project plus a small
- * "current view tab" so the app shell can switch between the future PRD
- * tabs without yet implementing them.
+ * Global project store. The store owns the active project and UI workflow tab,
+ * plus project mutations used by the implemented editor tabs.
  */
 import { create } from 'zustand';
 
-import { createProject } from '../model/project';
-import type { Location, Project } from '../model/schema';
+import { createProject, generateId } from '../model/project';
+import {
+  PanelTypeSchema,
+  PVArraySchema,
+  type Location,
+  type PanelType,
+  type Project,
+  type PVArray,
+} from '../model/schema';
 import { NL_DEFAULT_CENTER } from '../location/geocode';
 
 export type ProjectTab =
@@ -30,11 +36,51 @@ export const PROJECT_TABS: { id: ProjectTab; label: string }[] = [
   { id: 'resultaten', label: 'Resultaten' },
 ];
 
+export const DEFAULT_PANEL_TYPE_ID = 'panel_default_400w';
+
+const DEFAULT_PANEL_TYPE: PanelType = PanelTypeSchema.parse({
+  id: DEFAULT_PANEL_TYPE_ID,
+  manufacturer: 'Generiek',
+  model: '400 Wp mono',
+  pmaxW: 400,
+  vmpV: 34,
+  impA: 11.8,
+  vocV: 41,
+  iscA: 12.6,
+  tempCoeffPmaxPctPerC: -0.35,
+  tempCoeffVocPctPerC: -0.28,
+  cells: 108,
+  bypassDiodes: 3,
+  widthM: 1.13,
+  heightM: 1.72,
+});
+
+export type AddPVArrayInput = Partial<
+  Pick<
+    PVArray,
+    | 'name'
+    | 'panelTypeId'
+    | 'position'
+    | 'rows'
+    | 'columns'
+    | 'orientation'
+    | 'azimuthDeg'
+    | 'tiltDeg'
+    | 'baseHeightM'
+    | 'panelGapM'
+    | 'rowGapM'
+  >
+>;
+
 interface ProjectStoreState {
   project: Project;
   activeTab: ProjectTab;
   setActiveTab: (tab: ProjectTab) => void;
   setLocation: (location: Location) => void;
+  ensureDefaultPanelType: () => string;
+  addPVArray: (input?: AddPVArrayInput) => PVArray;
+  updatePVArray: (id: string, patch: Partial<PVArray>) => void;
+  removePVArray: (id: string) => void;
   replaceProject: (project: Project) => void;
 }
 
@@ -55,6 +101,93 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
         ...state.project,
         location,
         updatedAt: new Date().toISOString(),
+      },
+    })),
+  ensureDefaultPanelType: () => {
+    set((state) => {
+      if (state.project.pv.panelTypes.some((panelType) => panelType.id === DEFAULT_PANEL_TYPE_ID)) {
+        return state;
+      }
+      return {
+        project: {
+          ...state.project,
+          updatedAt: new Date().toISOString(),
+          pv: {
+            ...state.project.pv,
+            panelTypes: [...state.project.pv.panelTypes, DEFAULT_PANEL_TYPE],
+          },
+        },
+      };
+    });
+    return DEFAULT_PANEL_TYPE_ID;
+  },
+  addPVArray: (input = {}) => {
+    let created: PVArray | null = null;
+    set((state) => {
+      const panelTypes = state.project.pv.panelTypes;
+      const panelTypeId = input.panelTypeId ?? panelTypes[0]?.id ?? DEFAULT_PANEL_TYPE_ID;
+      const nextPanelTypes =
+        panelTypeId === DEFAULT_PANEL_TYPE_ID &&
+        !panelTypes.some((panelType) => panelType.id === DEFAULT_PANEL_TYPE_ID)
+          ? [...panelTypes, DEFAULT_PANEL_TYPE]
+          : panelTypes;
+      created = PVArraySchema.parse({
+        id: generateId('array'),
+        name: input.name ?? `PV array ${state.project.pv.arrays.length + 1}`,
+        panelTypeId,
+        position: input.position ?? {
+          lat: state.project.location.lat,
+          lon: state.project.location.lon,
+        },
+        rows: input.rows ?? 2,
+        columns: input.columns ?? 4,
+        orientation: input.orientation ?? 'portrait',
+        azimuthDeg: input.azimuthDeg ?? 180,
+        tiltDeg: input.tiltDeg ?? 35,
+        baseHeightM: input.baseHeightM ?? 3,
+        panelGapM: input.panelGapM ?? 0.02,
+        rowGapM: input.rowGapM ?? 0.3,
+      });
+      return {
+        project: {
+          ...state.project,
+          updatedAt: new Date().toISOString(),
+          pv: {
+            ...state.project.pv,
+            panelTypes: nextPanelTypes,
+            arrays: [...state.project.pv.arrays, created],
+          },
+        },
+      };
+    });
+    if (!created) throw new Error('Could not create PV array');
+    return created;
+  },
+  updatePVArray: (id, patch) =>
+    set((state) => {
+      const array = state.project.pv.arrays.find((item) => item.id === id);
+      if (!array) return state;
+      const updated = PVArraySchema.parse({ ...array, ...patch, id: array.id });
+      return {
+        project: {
+          ...state.project,
+          updatedAt: new Date().toISOString(),
+          pv: {
+            ...state.project.pv,
+            arrays: state.project.pv.arrays.map((item) => (item.id === id ? updated : item)),
+          },
+        },
+      };
+    }),
+  removePVArray: (id) =>
+    set((state) => ({
+      project: {
+        ...state.project,
+        updatedAt: new Date().toISOString(),
+        pv: {
+          ...state.project.pv,
+          arrays: state.project.pv.arrays.filter((item) => item.id !== id),
+        },
       },
     })),
   replaceProject: (project) => set({ project }),

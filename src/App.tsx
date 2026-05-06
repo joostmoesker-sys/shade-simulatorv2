@@ -1,4 +1,5 @@
 import { LocationTab } from './components/LocationTab';
+import { PVArraysTab } from './components/PVArraysTab';
 import { PROJECT_TABS, useProjectStore } from './store/projectStore';
 
 import './app.css';
@@ -27,9 +28,9 @@ export function App() {
         ))}
       </nav>
       <main className="app-main">
-        {activeTab === 'locatie' ? (
-          <LocationTab />
-        ) : (
+        {activeTab === 'locatie' && <LocationTab />}
+        {activeTab === 'pv-arrays' && <PVArraysTab />}
+        {activeTab !== 'locatie' && activeTab !== 'pv-arrays' && (
           <div className="placeholder">
             <h2>{PROJECT_TABS.find((t) => t.id === activeTab)?.label}</h2>
             <p>Deze stap wordt geïmplementeerd in een latere fase.</p>
