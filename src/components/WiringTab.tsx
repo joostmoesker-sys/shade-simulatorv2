@@ -29,43 +29,6 @@ function getMPPTWiring(wiring: MPPTWiring[], inverterId: string, mpptId: string)
   return wiring.find((item) => item.inverterId === inverterId && item.mpptId === mpptId) ?? null;
 }
 
-function panelsForRow(array: PVArray, row: number): WiringString['panels'] {
-  return Array.from({ length: array.columns }, (_, column) => ({
-    arrayId: array.id,
-    row,
-    column,
-  }));
-}
-
-function panelsForColumn(array: PVArray, column: number): WiringString['panels'] {
-  return Array.from({ length: array.rows }, (_, row) => ({
-    arrayId: array.id,
-    row,
-    column,
-  }));
-}
-
-function panelsForSnake(array: PVArray): WiringString['panels'] {
-  return Array.from({ length: array.rows }).flatMap((_, row) => {
-    const columns = Array.from({ length: array.columns }, (_, column) => column);
-    const orderedColumns = row % 2 === 0 ? columns : columns.reverse();
-    return orderedColumns.map((column) => ({
-      arrayId: array.id,
-      row,
-      column,
-    }));
-  });
-}
-
-function describePanels(panels: WiringString['panels'], arrays: PVArray[]): string {
-  if (panels.length === 0) return 'Geen panelen';
-  const first = panels[0];
-  const arrayName = arrays.find((array) => array.id === first.arrayId)?.name ?? first.arrayId;
-  const sameArray = panels.every((panel) => panel.arrayId === first.arrayId);
-  if (!sameArray) return `${panels.length} panelen over meerdere arrays`;
-  return `${arrayName}: ${panels.map((panel) => `R${panel.row + 1}C${panel.column + 1}`).join(' → ')}`;
-}
-
 function panelTypeForArray(array: PVArray, panelTypes: PanelType[]): PanelType | null {
   return panelTypes.find((panelType) => panelType.id === array.panelTypeId) ?? null;
 }
@@ -112,6 +75,70 @@ function wiringWarnings(
   return warnings;
 }
 
+function panelKey(arrayId: string, row: number, column: number): string {
+  return `${arrayId}:${row}:${column}`;
+}
+
+function pendingPanelLabel(panels: WiringString['panels'], row: number, column: number): number | null {
+  const index = panels.findIndex((panel) => panel.row === row && panel.column === column);
+  return index >= 0 ? index + 1 : null;
+}
+
+interface PanelGridProps {
+  array: PVArray;
+  assignedKeys: Set<string>;
+  pendingPanels: WiringString['panels'];
+  highlightedStringPanelKeys: Set<string>;
+  isBuilding: boolean;
+  onToggle: (row: number, column: number) => void;
+}
+
+function PanelGrid({ array, assignedKeys, pendingPanels, highlightedStringPanelKeys, isBuilding, onToggle }: PanelGridProps) {
+  const pendingKeys = useMemo(
+    () => new Set(pendingPanels.map((p) => panelKey(array.id, p.row, p.column))),
+    [pendingPanels, array.id],
+  );
+
+  return (
+    <div
+      className="panel-grid"
+      style={{ '--panel-grid-columns': array.columns } as React.CSSProperties}
+      aria-label={`Paneelraster ${array.name}`}
+    >
+      {Array.from({ length: array.rows }, (_, row) =>
+        Array.from({ length: array.columns }, (_, column) => {
+          const key = panelKey(array.id, row, column);
+          const isAssigned = assignedKeys.has(key);
+          const isPending = pendingKeys.has(key);
+          const isHighlighted = highlightedStringPanelKeys.has(key);
+          const orderNumber = isPending ? pendingPanelLabel(pendingPanels, row, column) : null;
+
+          let state: 'available' | 'pending' | 'assigned' | 'highlighted' = 'available';
+          if (isAssigned) state = 'assigned';
+          else if (isPending) state = 'pending';
+          else if (isHighlighted) state = 'highlighted';
+
+          return (
+            <button
+              key={key}
+              type="button"
+              className={`panel-cell panel-cell--${state}`}
+              disabled={isAssigned || !isBuilding}
+              aria-label={`Rij ${row + 1} Kolom ${column + 1}${isAssigned ? ' (toegewezen)' : ''}${isPending ? ` (geselecteerd #${orderNumber ?? ''})` : ''}`}
+              aria-pressed={isPending ? true : undefined}
+              onClick={() => onToggle(row, column)}
+            >
+              {isPending && orderNumber !== null ? (
+                <span className="panel-cell__order">{orderNumber}</span>
+              ) : null}
+            </button>
+          );
+        }),
+      )}
+    </div>
+  );
+}
+
 export function WiringTab() {
   const project = useProjectStore((s) => s.project);
   const addWiringString = useProjectStore((s) => s.addWiringString);
@@ -122,6 +149,9 @@ export function WiringTab() {
     return firstInverter && firstMPPT ? mpptKey(firstInverter.id, firstMPPT.id) : null;
   });
   const [selectedArrayId, setSelectedArrayId] = useState<string>(() => project.pv.arrays[0]?.id ?? '');
+  const [pendingPanels, setPendingPanels] = useState<WiringString['panels']>([]);
+  const [isBuilding, setIsBuilding] = useState(false);
+  const [hoveredStringId, setHoveredStringId] = useState<string | null>(null);
 
   const selected = useMemo(
     () => findSelectedMPPT(project.electrical.inverters, selectedKey),
@@ -136,6 +166,32 @@ export function WiringTab() {
     ? wiringWarnings(selected.mppt, strings, project.pv.arrays, project.pv.panelTypes)
     : [];
 
+  const assignedPanelKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const mpptWiring of project.electrical.wiring) {
+      for (const string of mpptWiring.strings) {
+        for (const panel of string.panels) {
+          keys.add(panelKey(panel.arrayId, panel.row, panel.column));
+        }
+      }
+    }
+    return keys;
+  }, [project.electrical.wiring]);
+
+  const hoveredStringPanelKeys = useMemo(() => {
+    if (!hoveredStringId) return new Set<string>();
+    const keys = new Set<string>();
+    for (const mpptWiring of project.electrical.wiring) {
+      for (const string of mpptWiring.strings) {
+        if (string.id !== hoveredStringId) continue;
+        for (const panel of string.panels) {
+          keys.add(panelKey(panel.arrayId, panel.row, panel.column));
+        }
+      }
+    }
+    return keys;
+  }, [project.electrical.wiring, hoveredStringId]);
+
   useEffect(() => {
     if (!selectedArrayId || !project.pv.arrays.some((array) => array.id === selectedArrayId)) {
       setSelectedArrayId(project.pv.arrays[0]?.id ?? '');
@@ -149,173 +205,239 @@ export function WiringTab() {
     }
   }, [selected, selectedKey]);
 
-  const addString = (panels: WiringString['panels']) => {
-    if (!selected) return;
-    addWiringString(selected.inverter.id, selected.mppt.id, panels);
+  const startBuilding = () => {
+    setPendingPanels([]);
+    setIsBuilding(true);
+  };
+
+  const cancelBuilding = () => {
+    setPendingPanels([]);
+    setIsBuilding(false);
+  };
+
+  const commitString = () => {
+    if (!selected || pendingPanels.length === 0) return;
+    addWiringString(selected.inverter.id, selected.mppt.id, pendingPanels);
+    setPendingPanels([]);
+    setIsBuilding(false);
+  };
+
+  const togglePanel = (row: number, column: number) => {
+    if (!isBuilding || !selectedArray) return;
+    const key = panelKey(selectedArray.id, row, column);
+    if (assignedPanelKeys.has(key)) return;
+    setPendingPanels((prev) => {
+      const existingIndex = prev.findIndex(
+        (panel) => panel.arrayId === selectedArray.id && panel.row === row && panel.column === column,
+      );
+      if (existingIndex >= 0) {
+        return prev.filter((_, index) => index !== existingIndex);
+      }
+      return [...prev, { arrayId: selectedArray.id, row, column }];
+    });
   };
 
   return (
-    <div className="panel-content editor-page wiring-page">
-      <aside className="editor-sidebar">
-        <header className="editor-header">
-          <div>
-            <h2>Bekabeling</h2>
-            <p className="hint">
-              Kies een MPPT en verbind panelen als seriestrings. Meerdere strings op dezelfde MPPT worden parallel gezet.
-            </p>
-          </div>
-        </header>
+    <div className="panel-content wiring-page">
+      <div className="wiring-layout">
+        <aside className="wiring-sidebar">
+          <header className="editor-header">
+            <div>
+              <h2>Bekabeling</h2>
+              <p className="hint">
+                Kies een MPPT, klik op panelen om een seriestring samen te stellen.
+              </p>
+            </div>
+          </header>
 
-        {project.electrical.inverters.length > 0 ? (
-          <ul className="entity-list" aria-label="MPPT aansluitingen">
-            {project.electrical.inverters.map((inverter) =>
-              inverter.mppts.map((mppt) => {
-                const key = mpptKey(inverter.id, mppt.id);
-                const mpptWiring = getMPPTWiring(project.electrical.wiring, inverter.id, mppt.id);
-                return (
-                  <li key={key}>
-                    <button
-                      type="button"
-                      aria-current={key === selectedKey ? 'true' : undefined}
-                      onClick={() => setSelectedKey(key)}
-                    >
-                      <span>
-                        {inverter.name} · {mppt.name}
-                      </span>
-                      <small>{mpptWiring?.strings.length ?? 0} string(s) aangesloten</small>
-                    </button>
-                  </li>
-                );
-              }),
-            )}
-          </ul>
-        ) : (
-          <p className="empty-state">Definieer eerst een inverter met MPPT's.</p>
-        )}
-      </aside>
-
-      <section className="editor-detail">
-        {selected ? (
-          <div className="property-form wiring-editor" aria-label="Bekabeling editor">
-            <h3>
-              {selected.inverter.name} · {selected.mppt.name}
-            </h3>
-            <dl className="array-stats">
-              <div>
-                <dt>Spanning</dt>
-                <dd>
-                  {selected.mppt.vMinV}-{selected.mppt.vMaxV} V
-                </dd>
-              </div>
-              <div>
-                <dt>Stroom</dt>
-                <dd>{selected.mppt.iMaxA} A</dd>
-              </div>
-              <div>
-                <dt>Vermogen</dt>
-                <dd>{(selected.mppt.pMaxW / 1000).toFixed(1)} kW</dd>
-              </div>
-            </dl>
-
-            {project.pv.arrays.length > 0 && selectedArray ? (
-              <section className="string-builder" aria-label="String toevoegen">
-                <label>
-                  PV array
-                  <select value={selectedArray.id} onChange={(e) => setSelectedArrayId(e.target.value)}>
-                    {project.pv.arrays.map((array) => (
-                      <option key={array.id} value={array.id}>
-                        {array.name} ({array.rows}×{array.columns})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <div className="string-template-grid">
-                  <section>
-                    <h4>Rijen</h4>
-                    <div className="template-buttons">
-                      {Array.from({ length: selectedArray.rows }, (_, row) => (
-                        <button key={row} type="button" onClick={() => addString(panelsForRow(selectedArray, row))}>
-                          Rij {row + 1}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                  <section>
-                    <h4>Kolommen</h4>
-                    <div className="template-buttons">
-                      {Array.from({ length: selectedArray.columns }, (_, column) => (
-                        <button
-                          key={column}
-                          type="button"
-                          onClick={() => addString(panelsForColumn(selectedArray, column))}
-                        >
-                          Kolom {column + 1}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-                <button type="button" onClick={() => addString(panelsForSnake(selectedArray))}>
-                  Hele array als snake-string toevoegen
-                </button>
-              </section>
-            ) : (
-              <p className="empty-state">Voeg eerst één of meer PV arrays toe.</p>
-            )}
-
-            <section className="sub-editor" aria-label="Aangesloten strings">
-              <header>
-                <h4>Aangesloten strings</h4>
-                <span className="string-count">{strings.length} parallel</span>
-              </header>
-              {strings.length > 0 ? (
-                strings.map((string, index) => {
-                  const summary = summarizeString(string, project.pv.arrays, project.pv.panelTypes);
+          {project.electrical.inverters.length > 0 ? (
+            <ul className="entity-list" aria-label="MPPT aansluitingen">
+              {project.electrical.inverters.map((inverter) =>
+                inverter.mppts.map((mppt) => {
+                  const key = mpptKey(inverter.id, mppt.id);
+                  const mpptWiring = getMPPTWiring(project.electrical.wiring, inverter.id, mppt.id);
                   return (
-                    <article key={string.id} className="string-card">
-                      <div>
-                        <strong>String {index + 1}</strong>
-                        <p>{describePanels(string.panels, project.pv.arrays)}</p>
-                        {summary && (
-                          <small>
-                            {`${summary.panelCount} panelen · Vmp ${summary.vmpV.toFixed(0)} V · Voc ${summary.vocV.toFixed(0)} V · ${summary.pmaxW.toFixed(0)} Wp`}
-                          </small>
-                        )}
-                      </div>
+                    <li key={key}>
                       <button
                         type="button"
-                        className="danger-button"
-                        onClick={() => removeWiringString(selected.inverter.id, selected.mppt.id, string.id)}
+                        aria-current={key === selectedKey ? 'true' : undefined}
+                        onClick={() => {
+                          setSelectedKey(key);
+                          cancelBuilding();
+                        }}
                       >
-                        Verwijderen
+                        <span>
+                          {inverter.name} · {mppt.name}
+                        </span>
+                        <small>{mpptWiring?.strings.length ?? 0} string(s) aangesloten</small>
                       </button>
-                    </article>
+                    </li>
                   );
-                })
-              ) : (
-                <p className="empty-state">Nog geen strings op deze MPPT.</p>
+                }),
               )}
-            </section>
+            </ul>
+          ) : (
+            <p className="empty-state">Definieer eerst een inverter met MPPT's.</p>
+          )}
+        </aside>
 
-            {warnings.length > 0 && (
-              <section className="wiring-warnings" aria-label="Bekabeling waarschuwingen">
-                <h4>Waarschuwingen</h4>
-                <ul>
-                  {warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              </section>
-            )}
-          </div>
-        ) : (
-          <div className="placeholder">
-            <h2>Bekabeling</h2>
-            <p>Definieer eerst een inverter en MPPT voordat je panelen aansluit.</p>
-          </div>
-        )}
-      </section>
+        <div className="wiring-main">
+          {selected ? (
+            <>
+              <div className="wiring-array-panel">
+                <div className="wiring-array-header">
+                  {project.pv.arrays.length > 1 && (
+                    <label className="wiring-array-select">
+                      Array:
+                      <select
+                        value={selectedArray?.id ?? ''}
+                        onChange={(e) => {
+                          setSelectedArrayId(e.target.value);
+                          cancelBuilding();
+                        }}
+                      >
+                        {project.pv.arrays.map((array) => (
+                          <option key={array.id} value={array.id}>
+                            {array.name} ({array.rows}×{array.columns})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <div className="wiring-array-title">
+                    <strong>{selectedArray?.name ?? '—'}</strong>
+                    {selectedArray && (
+                      <span className="wiring-dim">
+                        {selectedArray.rows} rijen × {selectedArray.columns} kolommen
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {selectedArray ? (
+                  <>
+                    <PanelGrid
+                      array={selectedArray}
+                      assignedKeys={assignedPanelKeys}
+                      pendingPanels={pendingPanels}
+                      highlightedStringPanelKeys={hoveredStringPanelKeys}
+                      isBuilding={isBuilding}
+                      onToggle={togglePanel}
+                    />
+                    <div className="wiring-legend">
+                      <span className="legend-item legend-item--available">Beschikbaar</span>
+                      <span className="legend-item legend-item--pending">Selectie</span>
+                      <span className="legend-item legend-item--assigned">Toegewezen</span>
+                      {hoveredStringId && (
+                        <span className="legend-item legend-item--highlighted">Gemarkeerde string</span>
+                      )}
+                    </div>
+                    <div className="wiring-actions">
+                      {isBuilding ? (
+                        <>
+                          <span className="wiring-pending-count">
+                            {pendingPanels.length} paneel{pendingPanels.length !== 1 ? 'en' : ''} geselecteerd
+                          </span>
+                          <button type="button" onClick={commitString} disabled={pendingPanels.length === 0}>
+                            String bevestigen
+                          </button>
+                          <button type="button" className="secondary-button" onClick={cancelBuilding}>
+                            Annuleren
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" onClick={startBuilding}>
+                          + Nieuwe string
+                        </button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p className="empty-state">Voeg eerst één of meer PV arrays toe.</p>
+                )}
+              </div>
+
+              <div className="wiring-strings-panel">
+                <div className="wiring-strings-header">
+                  <h3>
+                    {selected.inverter.name} · {selected.mppt.name}
+                  </h3>
+                  <dl className="array-stats">
+                    <div>
+                      <dt>Spanning</dt>
+                      <dd>
+                        {selected.mppt.vMinV}–{selected.mppt.vMaxV} V
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Stroom</dt>
+                      <dd>{selected.mppt.iMaxA} A</dd>
+                    </div>
+                    <div>
+                      <dt>Vermogen</dt>
+                      <dd>{(selected.mppt.pMaxW / 1000).toFixed(1)} kW</dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <section className="sub-editor" aria-label="Aangesloten strings">
+                  <header>
+                    <h4>Aangesloten strings</h4>
+                    <span className="string-count">{strings.length} parallel</span>
+                  </header>
+                  {strings.length > 0 ? (
+                    strings.map((string, index) => {
+                      const summary = summarizeString(string, project.pv.arrays, project.pv.panelTypes);
+                      return (
+                        <article
+                          key={string.id}
+                          className="string-card"
+                          onMouseEnter={() => setHoveredStringId(string.id)}
+                          onMouseLeave={() => setHoveredStringId(null)}
+                        >
+                          <div>
+                            <strong>String {index + 1}</strong>
+                            {summary && (
+                              <small>
+                                {`${summary.panelCount} panelen · Vmp ${summary.vmpV.toFixed(0)} V · Voc ${summary.vocV.toFixed(0)} V · ${summary.pmaxW.toFixed(0)} Wp`}
+                              </small>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() => removeWiringString(selected.inverter.id, selected.mppt.id, string.id)}
+                          >
+                            Verwijderen
+                          </button>
+                        </article>
+                      );
+                    })
+                  ) : (
+                    <p className="empty-state">Nog geen strings op deze MPPT.</p>
+                  )}
+                </section>
+
+                {warnings.length > 0 && (
+                  <section className="wiring-warnings" aria-label="Bekabeling waarschuwingen">
+                    <h4>Waarschuwingen</h4>
+                    <ul>
+                      {warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="placeholder">
+              <h2>Bekabeling</h2>
+              <p>Definieer eerst een inverter en MPPT voordat je panelen aansluit.</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
