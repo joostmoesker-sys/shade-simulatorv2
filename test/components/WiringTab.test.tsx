@@ -48,6 +48,8 @@ describe('<WiringTab>', () => {
       { arrayId: array.id, row: 0, column: 1 },
       { arrayId: array.id, row: 1, column: 1 },
     ]);
+    expect(screen.getByText('String 1: Vmp ligt onder Vmin.')).toBeInTheDocument();
+    expect(screen.getByText('Parallelle strings overschrijden Imax.')).toBeInTheDocument();
   });
 
   it('removes connected strings from the editor', () => {

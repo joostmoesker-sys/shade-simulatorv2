@@ -101,7 +101,7 @@ function wiringWarnings(
     .filter((summary): summary is NonNullable<typeof summary> => summary !== null);
   const warnings: string[] = [];
   for (const [index, summary] of summaries.entries()) {
-    if (summary.vmpV < mppt.vMinV) warnings.push(`String ${index + 1}: Vmpp ligt onder Vmin.`);
+    if (summary.vmpV < mppt.vMinV) warnings.push(`String ${index + 1}: Vmp ligt onder Vmin.`);
     if (summary.vocV > mppt.vMaxV) warnings.push(`String ${index + 1}: Voc ligt boven Vmax.`);
     if (summary.pmaxW > mppt.pMaxW) warnings.push(`String ${index + 1}: Pmax ligt boven MPPT-limiet.`);
   }
@@ -276,8 +276,7 @@ export function WiringTab() {
                         <p>{describePanels(string.panels, project.pv.arrays)}</p>
                         {summary && (
                           <small>
-                            {summary.panelCount} panelen · Vmpp {summary.vmpV.toFixed(0)} V · Voc{' '}
-                            {summary.vocV.toFixed(0)} V · {summary.pmaxW.toFixed(0)} Wp
+                            {`${summary.panelCount} panelen · Vmp ${summary.vmpV.toFixed(0)} V · Voc ${summary.vocV.toFixed(0)} V · ${summary.pmaxW.toFixed(0)} Wp`}
                           </small>
                         )}
                       </div>
