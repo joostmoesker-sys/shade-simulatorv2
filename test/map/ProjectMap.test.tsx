@@ -134,4 +134,17 @@ describe('<ProjectMap>', () => {
       );
     });
   });
+
+  it('renders scene objects as 3D extrusions', async () => {
+    render(<ProjectMap />);
+
+    await waitFor(() => {
+      expect(FakeMap.instances[0].addLayer).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'buildings-extrusion', type: 'fill-extrusion' }),
+      );
+      expect(FakeMap.instances[0].addLayer).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'tree-crowns-extrusion', type: 'fill-extrusion' }),
+      );
+    });
+  });
 });

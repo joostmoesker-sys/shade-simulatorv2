@@ -46,11 +46,13 @@ function buildSceneFeatureCollection(objects: SceneObject[]): Record<string, unk
     features: objects.map((object) => ({
       type: 'Feature',
       id: object.id,
-      properties: {
-        id: object.id,
-        name: object.name,
-        kind: object.kind,
-      },
+        properties: {
+          id: object.id,
+          name: object.name,
+          kind: object.kind,
+          heightM: object.kind === 'tree' || object.kind === 'building' ? object.heightM : 0,
+          trunkHeightM: object.kind === 'tree' ? object.trunkHeightM : 0,
+        },
       geometry:
         object.kind === 'building'
           ? { type: 'Polygon', coordinates: [[...object.footprint, object.footprint[0]]] }
@@ -83,10 +85,31 @@ function buildTreeCrownFeatureCollection(objects: SceneObject[]): Record<string,
         {
           type: 'Feature',
           id: object.id,
-          properties: { id: object.id },
+          properties: { id: object.id, heightM: object.heightM, trunkHeightM: object.trunkHeightM },
           geometry: {
             type: 'Polygon',
             coordinates: [crownCircleRing(object.position.lat, object.position.lon, object.crownRadiusM)],
+          },
+        },
+      ];
+    }),
+  };
+}
+
+function buildTreeTrunkFeatureCollection(objects: SceneObject[]): Record<string, unknown> {
+  return {
+    type: 'FeatureCollection',
+    features: objects.flatMap((object) => {
+      if (object.kind !== 'tree') return [];
+      const trunkRadiusM = Math.max(0.15, Math.min(0.45, object.crownRadiusM * 0.16));
+      return [
+        {
+          type: 'Feature',
+          id: `${object.id}-trunk`,
+          properties: { id: object.id, heightM: object.trunkHeightM },
+          geometry: {
+            type: 'Polygon',
+            coordinates: [crownCircleRing(object.position.lat, object.position.lon, trunkRadiusM, 16)],
           },
         },
       ];
@@ -143,10 +166,12 @@ export function ProjectMap() {
       style: buildOsmRasterStyle(baseLayer),
       center: [project.location.lon, project.location.lat],
       zoom: project.location ? LOCATION_ZOOM : DEFAULT_ZOOM,
+      pitch: 55,
+      bearing: -20,
       attributionControl: { compact: true },
     });
     mapRef.current = map;
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
 
     map.on('load', () => {
       map.addSource('pv-arrays', {
@@ -201,7 +226,19 @@ export function ProjectMap() {
         type: 'fill',
         source: 'scene-objects',
         filter: ['==', ['get', 'kind'], 'building'],
-        paint: { 'fill-color': '#7b5a3a', 'fill-opacity': 0.45 },
+        paint: { 'fill-color': '#7b5a3a', 'fill-opacity': 0.2 },
+      });
+      map.addLayer({
+        id: 'buildings-extrusion',
+        type: 'fill-extrusion',
+        source: 'scene-objects',
+        filter: ['==', ['get', 'kind'], 'building'],
+        paint: {
+          'fill-extrusion-color': '#8a6847',
+          'fill-extrusion-height': ['get', 'heightM'],
+          'fill-extrusion-base': 0,
+          'fill-extrusion-opacity': 0.72,
+        },
       });
       map.addLayer({
         id: 'buildings-outline',
@@ -214,6 +251,21 @@ export function ProjectMap() {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
+      map.addSource('tree-trunks', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'tree-trunks-extrusion',
+        type: 'fill-extrusion',
+        source: 'tree-trunks',
+        paint: {
+          'fill-extrusion-color': '#7a4b20',
+          'fill-extrusion-height': ['get', 'heightM'],
+          'fill-extrusion-base': 0,
+          'fill-extrusion-opacity': 0.85,
+        },
+      });
       map.addLayer({
         id: 'tree-crowns-fill',
         type: 'fill',
@@ -225,6 +277,17 @@ export function ProjectMap() {
         type: 'line',
         source: 'tree-crowns',
         paint: { 'line-color': '#145a18', 'line-width': 1.5, 'line-dasharray': [3, 2] },
+      });
+      map.addLayer({
+        id: 'tree-crowns-extrusion',
+        type: 'fill-extrusion',
+        source: 'tree-crowns',
+        paint: {
+          'fill-extrusion-color': '#2f7d32',
+          'fill-extrusion-height': ['get', 'heightM'],
+          'fill-extrusion-base': ['get', 'trunkHeightM'],
+          'fill-extrusion-opacity': 0.38,
+        },
       });
       map.addLayer({
         id: 'tree-crowns-selected',
@@ -324,6 +387,11 @@ export function ProjectMap() {
     );
     (map.getSource('tree-crowns') as GeoJSONSource).setData(
       buildTreeCrownFeatureCollection(project.scene.objects) as unknown as Parameters<
+        GeoJSONSource['setData']
+      >[0],
+    );
+    (map.getSource('tree-trunks') as GeoJSONSource).setData(
+      buildTreeTrunkFeatureCollection(project.scene.objects) as unknown as Parameters<
         GeoJSONSource['setData']
       >[0],
     );

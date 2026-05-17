@@ -1,7 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+vi.mock('../../src/data/dutchBuildings', () => ({
+  fetchDutchBuildingObjects: vi.fn(),
+}));
 
 import { ObjectsTab } from '../../src/components/ObjectsTab';
+import { fetchDutchBuildingObjects } from '../../src/data/dutchBuildings';
 import { createProject } from '../../src/model/project';
 import { useProjectStore } from '../../src/store/projectStore';
 
@@ -16,6 +21,7 @@ describe('<ObjectsTab>', () => {
       selectedPVArrayId: null,
       objectMapAddKind: null,
     });
+    vi.mocked(fetchDutchBuildingObjects).mockReset();
   });
 
   it('creates and edits a tree object', () => {
@@ -65,6 +71,34 @@ describe('<ObjectsTab>', () => {
     expect(useProjectStore.getState().project.scene.objects[0]).toMatchObject({
       kind: 'building',
       footprint,
+    });
+  });
+
+  it('imports nearby buildings from 3D BAG', async () => {
+    vi.mocked(fetchDutchBuildingObjects).mockResolvedValue([
+      {
+        kind: 'building',
+        name: '3D BAG pand-1',
+        position: validLocation,
+        heightM: 9,
+        footprint: [
+          [5, 52],
+          [5.001, 52],
+          [5.001, 52.001],
+        ],
+      },
+    ]);
+    render(<ObjectsTab />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gebouwen automatisch ophalen' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 gebouw\(en\) automatisch toegevoegd/)).toBeInTheDocument();
+    });
+    expect(useProjectStore.getState().project.scene.objects[0]).toMatchObject({
+      kind: 'building',
+      name: '3D BAG pand-1',
+      heightM: 9,
     });
   });
 });

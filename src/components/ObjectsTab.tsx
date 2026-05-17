@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { fetchDutchBuildingObjects } from '../data/dutchBuildings';
 import { sceneObjectKindLabel } from '../model/sceneObjectLabels';
 import { useProjectStore } from '../store/projectStore';
 import type { BuildingObject, SceneObject, TreeObject } from '../model/schema';
@@ -26,6 +27,11 @@ export function ObjectsTab() {
   const setObjectMapAddKind = useProjectStore((s) => s.setObjectMapAddKind);
   const [footprintText, setFootprintText] = useState('');
   const [footprintError, setFootprintError] = useState<string | null>(null);
+  const [buildingImportState, setBuildingImportState] = useState<{
+    loading: boolean;
+    message: string | null;
+    error: string | null;
+  }>({ loading: false, message: null, error: null });
 
   const selectedObject = project.scene.objects.find((object) => object.id === selectedId) ?? null;
 
@@ -74,6 +80,34 @@ export function ObjectsTab() {
     }
   };
 
+  const importBuildings = async () => {
+    setBuildingImportState({ loading: true, message: null, error: null });
+    try {
+      const buildings = await fetchDutchBuildingObjects(project.location);
+      const existingCenters = project.scene.objects
+        .filter((object): object is BuildingObject => object.kind === 'building')
+        .map((object) => object.position);
+      const newBuildings = buildings.filter(
+        (building) => !existingCenters.some((position) => distanceMeters(position, building.position) < 1),
+      );
+      for (const building of newBuildings) addSceneObject(building);
+      setBuildingImportState({
+        loading: false,
+        message:
+          newBuildings.length === 0
+            ? 'Geen nieuwe gebouwen gevonden rond deze locatie.'
+            : `${newBuildings.length} gebouw(en) automatisch toegevoegd uit 3D BAG.`,
+        error: null,
+      });
+    } catch (err) {
+      setBuildingImportState({
+        loading: false,
+        message: null,
+        error: (err as Error).message,
+      });
+    }
+  };
+
   return (
     <div className="panel-content editor-page">
       <aside className="editor-sidebar">
@@ -103,7 +137,26 @@ export function ObjectsTab() {
             >
               Gebouw op kaart
             </button>
+            <button type="button" disabled={buildingImportState.loading} onClick={importBuildings}>
+              {buildingImportState.loading ? 'Gebouwen ophalen…' : 'Gebouwen automatisch ophalen'}
+            </button>
           </div>
+          {buildingImportState.message && <p className="status-message">{buildingImportState.message}</p>}
+          {buildingImportState.error && (
+            <p role="alert" className="error">
+              Automatisch ophalen mislukt: {buildingImportState.error}
+            </p>
+          )}
+          <details className="automation-plan">
+            <summary>Plan voor automatische bomen uit AHN DSM</summary>
+            <ol>
+              <li>Haal AHN DSM en DTM rastertegels op voor dezelfde bounding box als het project.</li>
+              <li>Bereken objecthoogte als DSM minus DTM en verwijder gebouwpixels met BAG/3D BAG-footprints.</li>
+              <li>Cluster overblijvende vegetatie boven een hoogte- en kroondrempel tot boomkandidaten.</li>
+              <li>Leid per cluster positie, kroonradius, hoogte, stamhoogte en dichtheid af voor de schaduwobjecten.</li>
+              <li>Laat de gebruiker de automatisch gevonden bomen controleren voordat ze definitief worden opgeslagen.</li>
+            </ol>
+          </details>
         </header>
 
         {project.scene.objects.length > 0 ? (
@@ -275,4 +328,10 @@ export function ObjectsTab() {
       </section>
     </div>
   );
+}
+
+function distanceMeters(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const dLat = (a.lat - b.lat) * 111_320;
+  const dLon = (a.lon - b.lon) * 111_320 * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+  return Math.hypot(dLat, dLon);
 }

@@ -202,6 +202,24 @@ body,
   color: var(--color-muted);
   font-size: 0.85rem;
 }
+.status-message {
+  margin: 0.5rem 0 0;
+  color: #225d2a;
+  font-size: 0.85rem;
+}
+.automation-plan {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+.automation-plan summary {
+  cursor: pointer;
+  color: var(--color-text);
+  font-weight: 600;
+}
+.automation-plan ol {
+  padding-left: 1.25rem;
+}
 .search-form {
   display: flex;
   gap: 0.5rem;
