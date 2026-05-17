@@ -2,6 +2,7 @@ import type { BuildingObject, LatLon } from '../model/schema';
 
 const THREE_D_BAG_ITEMS_URL = 'https://api.3dbag.nl/collections/pand/items';
 const PDOK_BAG_WFS_URL = 'https://geodata.nationaalgeoregister.nl/bag/wfs/v1_1';
+const OPENSTREETMAP_OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 const DEFAULT_RADIUS_M = 65;
 const DEFAULT_LIMIT = 40;
 const MIN_HEIGHT_M = 2;
@@ -49,24 +50,52 @@ export function buildPdokBagWfsUrl(location: LatLon, radiusM = DEFAULT_RADIUS_M,
   return url.toString();
 }
 
+export function buildOpenStreetMapOverpassUrl(
+  location: LatLon,
+  radiusM = DEFAULT_RADIUS_M,
+  limit = DEFAULT_LIMIT,
+): string {
+  const dLat = radiusM / 111_320;
+  const dLon = radiusM / (111_320 * Math.cos((location.lat * Math.PI) / 180));
+  const south = location.lat - dLat;
+  const west = location.lon - dLon;
+  const north = location.lat + dLat;
+  const east = location.lon + dLon;
+  const url = new URL(OPENSTREETMAP_OVERPASS_URL);
+  url.searchParams.set(
+    'data',
+    `[out:json][timeout:25];(way["building"](${south},${west},${north},${east}););out geom qt ${limit};`,
+  );
+  return url.toString();
+}
+
 export async function fetchDutchBuildingObjects(
   location: LatLon,
   options: FetchBuildingsOptions = {},
 ): Promise<ImportedBuilding[]> {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const errors: string[] = [];
   try {
     const data = await fetchJson(buildThreeDBagItemsUrl(location, options.radiusM, options.limit), fetchImpl, '3D BAG');
     return parseDutchBuildingResponse(data);
   } catch (primaryError) {
+    errors.push(`3D BAG: ${messageOf(primaryError)}`);
     try {
       const data = await fetchJson(buildPdokBagWfsUrl(location, options.radiusM, options.limit), fetchImpl, 'PDOK BAG');
       return parsePdokBagResponse(data);
     } catch (fallbackError) {
-      throw new Error(
-        `Gebouwen ophalen mislukt via 3D BAG en PDOK BAG. 3D BAG: ${messageOf(primaryError)}. PDOK BAG: ${messageOf(
-          fallbackError,
-        )}`,
-      );
+      errors.push(`PDOK BAG: ${messageOf(fallbackError)}`);
+      try {
+        const data = await fetchJson(
+          buildOpenStreetMapOverpassUrl(location, options.radiusM, options.limit),
+          fetchImpl,
+          'OpenStreetMap',
+        );
+        return parseOpenStreetMapBuildingsResponse(data);
+      } catch (openStreetMapError) {
+        errors.push(`OpenStreetMap: ${messageOf(openStreetMapError)}`);
+        throw new Error(`Gebouwen ophalen mislukt via 3D BAG, PDOK BAG en OpenStreetMap. ${errors.join('. ')}`);
+      }
     }
   }
 }
@@ -95,6 +124,32 @@ export function parsePdokBagResponse(data: unknown): ImportedBuilding[] {
     ...building,
     name: building.name.replace(/^3D BAG/, 'BAG'),
   }));
+}
+
+export function parseOpenStreetMapBuildingsResponse(data: unknown): ImportedBuilding[] {
+  const record = asRecord(data);
+  if (!record || !Array.isArray(record.elements)) return [];
+  return record.elements.flatMap((element, index) => {
+    const way = asRecord(element);
+    if (!way || way.type !== 'way' || !Array.isArray(way.geometry)) return [];
+    const footprint = normalizeRing(
+      way.geometry.map((point) => {
+        const recordPoint = asRecord(point);
+        return [recordPoint?.lon, recordPoint?.lat];
+      }),
+    );
+    if (!footprint) return [];
+    const tags = asRecord(way.tags);
+    return [
+      {
+        kind: 'building' as const,
+        name: extractOpenStreetMapName(way, tags, index),
+        position: centroid(footprint),
+        footprint,
+        heightM: extractOpenStreetMapHeightM(tags),
+      },
+    ];
+  });
 }
 
 async function fetchJson(url: string, fetchImpl: typeof fetch, label: string): Promise<unknown> {
@@ -216,6 +271,20 @@ function extractName(feature: JsonRecord, index: number): string {
   const properties = asRecord(feature.properties);
   const id = readFirstString(properties ?? feature, ['identificatie', 'id', 'pand_id']) ?? readFirstString(feature, ['id']);
   return id ? `3D BAG ${id}` : `3D BAG gebouw ${index + 1}`;
+}
+
+function extractOpenStreetMapName(way: JsonRecord, tags: JsonRecord | null, index: number): string {
+  const label = readFirstString(tags ?? {}, ['name', 'ref']) ?? String(readNumber(way.id) ?? '');
+  return label ? `OpenStreetMap ${label}` : `OpenStreetMap gebouw ${index + 1}`;
+}
+
+function extractOpenStreetMapHeightM(tags: JsonRecord | null): number {
+  if (!tags) return FALLBACK_HEIGHT_M;
+  const height = readDistanceMeters(tags.height) ?? readDistanceMeters(tags['building:height']);
+  if (height !== null) return clampHeight(height);
+  const levels = readNumberLike(tags['building:levels'] ?? tags.levels);
+  if (levels !== null) return clampHeight(levels * 3);
+  return FALLBACK_HEIGHT_M;
 }
 
 function normalizeCoordinate(xRaw: unknown, yRaw: unknown): [number, number] | null {
@@ -368,6 +437,29 @@ function asRecord(value: unknown): JsonRecord | null {
 
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readNumberLike(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().replace(',', '.');
+  if (!normalized) return null;
+  const match = normalized.match(/^-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readDistanceMeters(value: unknown): number | null {
+  const distance = readNumberLike(value);
+  if (distance === null) return null;
+  if (typeof value === 'string' && /\bft\b|'/i.test(value)) return distance * 0.3048;
+  return distance;
+}
+
+function clampHeight(heightM: number): number {
+  if (heightM < MIN_HEIGHT_M) return FALLBACK_HEIGHT_M;
+  return Math.min(MAX_HEIGHT_M, Number(heightM.toFixed(1)));
 }
 
 function readNumberPair(value: unknown, fallback: [number, number]): [number, number] {

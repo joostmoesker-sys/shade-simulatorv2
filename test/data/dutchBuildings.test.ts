@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildOpenStreetMapOverpassUrl,
   buildPdokBagWfsUrl,
   buildThreeDBagItemsUrl,
   fetchDutchBuildingObjects,
   parseDutchBuildingResponse,
+  parseOpenStreetMapBuildingsResponse,
   parsePdokBagResponse,
 } from '../../src/data/dutchBuildings';
 
@@ -25,6 +27,15 @@ describe('dutchBuildings', () => {
     expect(url.searchParams.get('outputFormat')).toBe('application/json');
     expect(url.searchParams.get('bbox')?.split(',')).toHaveLength(5);
     expect(url.searchParams.get('maxFeatures')).toBe('25');
+  });
+
+  it('builds a bounded OpenStreetMap Overpass fallback request', () => {
+    const url = new URL(buildOpenStreetMapOverpassUrl({ lat: 51.25, lon: 5.98 }, 75, 25));
+    const query = url.searchParams.get('data') ?? '';
+
+    expect(url.origin + url.pathname).toBe('https://overpass-api.de/api/interpreter');
+    expect(query).toContain('way["building"]');
+    expect(query).toContain('out geom qt 25');
   });
 
   it('parses GeoJSON building footprints and 3DBAG roof height attributes', () => {
@@ -110,6 +121,44 @@ describe('dutchBuildings', () => {
     expect(buildings[0].footprint[0][0]).toBeLessThan(7.4);
   });
 
+  it('falls back to OpenStreetMap when 3D BAG and PDOK BAG cannot be fetched', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          elements: [
+            {
+              type: 'way',
+              id: 123,
+              tags: { 'building:levels': '2' },
+              geometry: [
+                { lon: 5.98, lat: 51.25 },
+                { lon: 5.9801, lat: 51.25 },
+                { lon: 5.9801, lat: 51.2501 },
+                { lon: 5.98, lat: 51.25 },
+              ],
+            },
+          ],
+        }),
+      }) as unknown as typeof fetch;
+
+    const buildings = await fetchDutchBuildingObjects({ lat: 51.25, lon: 5.98 }, { fetchImpl });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(buildings[0]).toMatchObject({
+      name: 'OpenStreetMap 123',
+      heightM: 6,
+      footprint: [
+        [5.98, 51.25],
+        [5.9801, 51.25],
+        [5.9801, 51.2501],
+      ],
+    });
+  });
+
   it('parses PDOK BAG RD coordinates as WGS84 footprints', () => {
     const buildings = parsePdokBagResponse({
       type: 'FeatureCollection',
@@ -136,6 +185,33 @@ describe('dutchBuildings', () => {
     expect(buildings[0].position).toMatchObject({
       lat: expect.closeTo(52.1552, 3),
       lon: expect.closeTo(5.3872, 3),
+    });
+  });
+
+  it('parses OpenStreetMap building geometry and height tags', () => {
+    const buildings = parseOpenStreetMapBuildingsResponse({
+      elements: [
+        {
+          type: 'way',
+          id: 456,
+          tags: { name: 'Schuur', height: '4,5 m' },
+          geometry: [
+            { lon: 5.98, lat: 51.25 },
+            { lon: 5.9801, lat: 51.25 },
+            { lon: 5.9801, lat: 51.2501 },
+            { lon: 5.98, lat: 51.25 },
+          ],
+        },
+      ],
+    });
+
+    expect(buildings[0]).toMatchObject({
+      name: 'OpenStreetMap Schuur',
+      heightM: 4.5,
+      position: {
+        lat: expect.closeTo(51.25003, 5),
+        lon: expect.closeTo(5.98007, 5),
+      },
     });
   });
 });

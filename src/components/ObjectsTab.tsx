@@ -96,7 +96,7 @@ export function ObjectsTab() {
         message:
           newBuildings.length === 0
             ? 'Geen nieuwe gebouwen gevonden rond deze locatie.'
-            : `${newBuildings.length} gebouw(en) automatisch toegevoegd uit 3D BAG.`,
+            : `${newBuildings.length} gebouw(en) automatisch toegevoegd.`,
         error: null,
       });
     } catch (err) {
