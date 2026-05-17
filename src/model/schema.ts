@@ -114,6 +114,8 @@ export const BuildingObjectSchema = SceneObjectBase.extend({
     .array(
       z.object({
         footprint: z.array(z.tuple([FiniteNumber, FiniteNumber])).min(3),
+        /** Optional per-vertex [lon, lat, height above ground] for sloped roofs. */
+        vertices: z.array(z.tuple([FiniteNumber, FiniteNumber, NonNegative])).min(3).optional(),
         baseHeightM: NonNegative.default(0),
         heightM: Positive,
       }),

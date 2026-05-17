@@ -279,6 +279,7 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
               position,
               footprint: input.footprint ?? defaultBuildingFootprint(position),
               heightM: input.heightM ?? 6,
+              roofSurfaces: input.roofSurfaces,
               kind: 'building',
             });
       return {

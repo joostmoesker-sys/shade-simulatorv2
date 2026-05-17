@@ -119,6 +119,11 @@ describe('dutchBuildings', () => {
         {
           baseHeightM: 3,
           heightM: 4,
+          vertices: [
+            [5, 52, 3],
+            [5.0002, 52, 3],
+            [5.0001, 52.00005, 4],
+          ],
           footprint: [
             [5, 52],
             [5.0002, 52],
@@ -128,6 +133,46 @@ describe('dutchBuildings', () => {
         expect.objectContaining({ baseHeightM: 3, heightM: 4 }),
       ],
     });
+  });
+
+  it('preserves 3D GeoJSON roof vertex heights when they are present', () => {
+    const buildings = parseDutchBuildingResponse({
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'MultiPolygon',
+            coordinates: [
+              [
+                [
+                  [5, 52, 3],
+                  [5.0002, 52, 3],
+                  [5.0001, 52.0001, 5],
+                  [5, 52, 3],
+                ],
+              ],
+              [
+                [
+                  [5.0002, 52, 3],
+                  [5.0002, 52.0002, 3],
+                  [5.0001, 52.0001, 5],
+                  [5.0002, 52, 3],
+                ],
+              ],
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(buildings[0].heightM).toBe(2);
+    expect(buildings[0].roofSurfaces).toHaveLength(2);
+    expect(buildings[0].roofSurfaces?.[0].vertices).toEqual([
+      [5, 52, 0],
+      [5.0002, 52, 0],
+      [5.0001, 52.0001, 2],
+    ]);
   });
 
   it('fetches and parses buildings with an injectable fetch implementation', async () => {

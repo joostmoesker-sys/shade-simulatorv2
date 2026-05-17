@@ -180,25 +180,40 @@ function collectFeatures(data: unknown): JsonRecord[] {
 function extractBuildingGeometry(
   feature: JsonRecord,
 ): { footprint: [number, number][]; heightM?: number; roofSurfaces?: BuildingObject['roofSurfaces'] } | null {
-  const geoJsonFootprint = extractGeoJsonFootprint(asRecord(feature.geometry));
-  if (geoJsonFootprint) return { footprint: geoJsonFootprint };
+  const geoJsonGeometry = extractGeoJsonGeometry(asRecord(feature.geometry));
+  if (geoJsonGeometry) return geoJsonGeometry;
   return extractCityJsonGeometry(feature);
 }
 
-function extractGeoJsonFootprint(geometry: JsonRecord | null): [number, number][] | null {
+function extractGeoJsonGeometry(
+  geometry: JsonRecord | null,
+): { footprint: [number, number][]; heightM?: number; roofSurfaces?: BuildingObject['roofSurfaces'] } | null {
   if (!geometry) return null;
   if (geometry.type === 'Polygon' && Array.isArray(geometry.coordinates)) {
-    return normalizeRing(geometry.coordinates[0]);
+    return extractGeoJsonPolygonGeometry([geometry.coordinates]);
   }
   if (geometry.type === 'MultiPolygon' && Array.isArray(geometry.coordinates)) {
-    const rings = geometry.coordinates.flatMap((polygon) => {
-      if (!Array.isArray(polygon)) return [];
-      const ring = normalizeRing(polygon[0]);
-      return ring ? [ring] : [];
-    });
-    return largestRing(rings);
+    return extractGeoJsonPolygonGeometry(geometry.coordinates);
   }
   return null;
+}
+
+function extractGeoJsonPolygonGeometry(
+  polygonsRaw: unknown[],
+): { footprint: [number, number][]; heightM?: number; roofSurfaces?: BuildingObject['roofSurfaces'] } | null {
+  const rings3d = polygonsRaw.flatMap((polygon) => {
+    if (!Array.isArray(polygon)) return [];
+    const exterior = Array.isArray(polygon[0]) ? polygon[0] : null;
+    const ring = exterior ? normalizeCityRing(exterior) : null;
+    return ring ? [ring] : [];
+  });
+  if (rings3d.length === 0) return null;
+  const hasZ = rings3d.some((ring) => ring.some(([, , z]) => z !== 0));
+  if (!hasZ) {
+    const footprint = largestRing(rings3d.map(projectRing));
+    return footprint ? { footprint } : null;
+  }
+  return buildGeometryFromPolygons(rings3d.map((ring) => ({ ring, semanticType: null })));
 }
 
 function extractCityJsonGeometry(
@@ -227,6 +242,16 @@ function extractCityJsonGeometry(
         return geometries.flatMap((geometry) => extractCityPolygons(asRecord(geometry), vertices));
       })
     : [];
+  return buildGeometryFromPolygons(
+    polygons.length > 0 ? polygons : [{ ring: vertices, semanticType: null }],
+  );
+}
+
+function buildGeometryFromPolygons(
+  polygons: CityPolygon[],
+): { footprint: [number, number][]; heightM?: number; roofSurfaces?: BuildingObject['roofSurfaces'] } | null {
+  const vertices = polygons.flatMap((polygon) => polygon.ring);
+  if (vertices.length < 3) return null;
   const minZ = Math.min(...vertices.map(([, , z]) => z));
   const maxZ = Math.max(...vertices.map(([, , z]) => z));
   const projectedVertices = vertices.map(([lon, lat]) => [lon, lat] as [number, number]);
@@ -234,9 +259,10 @@ function extractCityJsonGeometry(
   const footprint = largestRing(groundPolygons.map((polygon) => projectRing(polygon.ring))) ?? convexHull(projectedVertices);
   if (!footprint) return null;
   const roofSurfaces = polygons
-    .filter((polygon) => polygon.semanticType === 'RoofSurface' || minHeight(polygon) > minZ + 1)
+    .filter((polygon) => polygon.semanticType === 'RoofSurface' || maxHeight(polygon) > minZ + 1)
     .map((polygon) => ({
       footprint: projectRing(polygon.ring),
+      vertices: polygon.ring.map(([lon, lat, z]) => [lon, lat, clampNonNegative(z - minZ)] as [number, number, number]),
       baseHeightM: clampNonNegative(minHeight(polygon) - minZ),
       heightM: clampHeight(maxHeight(polygon) - minZ),
     }))
@@ -343,6 +369,18 @@ function normalizeRing(rawRing: unknown): [number, number][] | null {
     ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]
       ? ring.slice(0, -1)
       : ring;
+  return openRing.length >= 3 ? openRing : null;
+}
+
+function normalizeCityRing(rawRing: unknown): CityPoint[] | null {
+  if (!Array.isArray(rawRing)) return null;
+  const ring = rawRing.flatMap((raw) => {
+    if (!Array.isArray(raw)) return [];
+    const point = normalizeCoordinate(raw[0], raw[1]);
+    const z = readNumber(raw[2]) ?? 0;
+    return point ? [[point[0], point[1], z] as CityPoint] : [];
+  });
+  const openRing = stripClosingCityPoint(ring);
   return openRing.length >= 3 ? openRing : null;
 }
 

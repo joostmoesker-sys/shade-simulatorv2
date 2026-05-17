@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import maplibregl, { type GeoJSONSource, type Map as MapLibreMap, Marker } from 'maplibre-gl';
+import maplibregl, {
+  type CustomLayerInterface,
+  type GeoJSONSource,
+  type Map as MapLibreMap,
+  Marker,
+} from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { isInsideNetherlands } from '../location/geocode';
@@ -15,6 +20,17 @@ const DEFAULT_ZOOM = 18;
 const LOCATION_ZOOM = 16;
 const ROTATE_HANDLE_OFFSET_M = 4;
 const TREE_CENTER_MARKER_RADIUS = 6;
+const ROOF_VERTEX_SHADER =
+  'uniform mat4 u_matrix;' +
+  'attribute vec3 a_pos;' +
+  'void main() {' +
+  '  gl_Position = u_matrix * vec4(a_pos, 1.0);' +
+  '}';
+const ROOF_FRAGMENT_SHADER =
+  'precision mediump float;' +
+  'void main() {' +
+  '  gl_FragColor = vec4(0.61, 0.34, 0.16, 0.92);' +
+  '}';
 
 const ARROW_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="24" height="36">' +
@@ -66,24 +82,98 @@ function buildSceneFeatureCollection(objects: SceneObject[]): Record<string, unk
   };
 }
 
-function buildBuildingRoofFeatureCollection(objects: SceneObject[]): Record<string, unknown> {
+interface BuildingRoofMeshLayer extends CustomLayerInterface {
+  setObjects: (objects: SceneObject[]) => void;
+}
+
+function createBuildingRoofMeshLayer(): BuildingRoofMeshLayer {
+  let program: WebGLProgram | null = null;
+  let buffer: WebGLBuffer | null = null;
+  let vertexCount = 0;
+  let currentGl: WebGLRenderingContext | null = null;
+
+  function setObjects(objects: SceneObject[]) {
+    if (!currentGl || !buffer) return;
+    const vertices = buildRoofMeshVertices(objects);
+    vertexCount = vertices.length / 3;
+    currentGl.bindBuffer(currentGl.ARRAY_BUFFER, buffer);
+    currentGl.bufferData(currentGl.ARRAY_BUFFER, new Float32Array(vertices), currentGl.STATIC_DRAW);
+  }
+
   return {
-    type: 'FeatureCollection',
-    features: objects.flatMap((object) => {
-      if (object.kind !== 'building' || !object.roofSurfaces?.length) return [];
-      return object.roofSurfaces.map((surface, index) => ({
-        type: 'Feature',
-        id: `${object.id}-roof-${index}`,
-        properties: {
-          id: object.id,
-          roofId: `${object.id}-roof-${index}`,
-          heightM: surface.heightM,
-          baseHeightM: surface.baseHeightM,
-        },
-        geometry: { type: 'Polygon', coordinates: [[...surface.footprint, surface.footprint[0]]] },
-      }));
-    }),
+    id: 'building-roofs-mesh',
+    type: 'custom',
+    renderingMode: '3d',
+    setObjects,
+    onAdd: (_map, gl) => {
+      currentGl = gl;
+      program = createRoofProgram(gl);
+      buffer = gl.createBuffer();
+    },
+    render: (gl, matrix) => {
+      if (!program || !buffer || vertexCount === 0) return;
+      const positionLocation = gl.getAttribLocation(program, 'a_pos');
+      const matrixLocation = gl.getUniformLocation(program, 'u_matrix');
+      gl.useProgram(program);
+      gl.uniformMatrix4fv(matrixLocation, false, matrix);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.enableVertexAttribArray(positionLocation);
+      gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
+    },
+    onRemove: (_map, gl) => {
+      if (buffer) gl.deleteBuffer(buffer);
+      if (program) gl.deleteProgram(program);
+      buffer = null;
+      program = null;
+      currentGl = null;
+      vertexCount = 0;
+    },
   };
+}
+
+function createRoofProgram(gl: WebGLRenderingContext): WebGLProgram {
+  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, ROOF_VERTEX_SHADER);
+  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, ROOF_FRAGMENT_SHADER);
+  const program = gl.createProgram();
+  if (!program) throw new Error('Kon dakshader niet aanmaken');
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new Error(gl.getProgramInfoLog(program) ?? 'Kon dakshader niet linken');
+  }
+  return program;
+}
+
+function compileShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader {
+  const shader = gl.createShader(type);
+  if (!shader) throw new Error('Kon dakshader niet aanmaken');
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    throw new Error(gl.getShaderInfoLog(shader) ?? 'Kon dakshader niet compileren');
+  }
+  return shader;
+}
+
+function buildRoofMeshVertices(objects: SceneObject[]): number[] {
+  const vertices: number[] = [];
+  for (const object of objects) {
+    if (object.kind !== 'building' || !object.roofSurfaces?.length) continue;
+    for (const surface of object.roofSurfaces) {
+      const ring = surface.vertices ?? surface.footprint.map(([lon, lat]) => [lon, lat, surface.heightM] as [number, number, number]);
+      for (let index = 1; index < ring.length - 1; index++) {
+        for (const point of [ring[0], ring[index], ring[index + 1]]) {
+          const mercator = maplibregl.MercatorCoordinate.fromLngLat({ lng: point[0], lat: point[1] }, point[2]);
+          vertices.push(mercator.x, mercator.y, mercator.z);
+        }
+      }
+    }
+  }
+  return vertices;
 }
 
 /**
@@ -179,6 +269,7 @@ export function ProjectMap() {
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const buildingRoofMeshLayerRef = useRef<BuildingRoofMeshLayer | null>(null);
   const locationMarkerRef = useRef<Marker | null>(null);
   const objectMarkerRef = useRef<Marker | null>(null);
   const moveMarkerRef = useRef<Marker | null>(null);
@@ -258,10 +349,6 @@ export function ProjectMap() {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
-      map.addSource('building-roofs', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      });
       map.addLayer({
         id: 'buildings-fill',
         type: 'fill',
@@ -281,17 +368,9 @@ export function ProjectMap() {
           'fill-extrusion-opacity': 0.72,
         },
       });
-      map.addLayer({
-        id: 'building-roofs-extrusion',
-        type: 'fill-extrusion',
-        source: 'building-roofs',
-        paint: {
-          'fill-extrusion-color': '#9b5f34',
-          'fill-extrusion-height': ['get', 'heightM'],
-          'fill-extrusion-base': ['get', 'baseHeightM'],
-          'fill-extrusion-opacity': 0.86,
-        },
-      });
+      const roofMeshLayer = createBuildingRoofMeshLayer();
+      buildingRoofMeshLayerRef.current = roofMeshLayer;
+      map.addLayer(roofMeshLayer);
       map.addLayer({
         id: 'buildings-outline',
         type: 'line',
@@ -412,6 +491,7 @@ export function ProjectMap() {
       azimuthMarkerRef.current?.remove();
       map.remove();
       mapRef.current = null;
+      buildingRoofMeshLayerRef.current = null;
     };
     // Intentionally initialise once; prop/state updates are synchronised below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -437,11 +517,8 @@ export function ProjectMap() {
         GeoJSONSource['setData']
       >[0],
     );
-    (map.getSource('building-roofs') as GeoJSONSource).setData(
-      buildBuildingRoofFeatureCollection(project.scene.objects) as unknown as Parameters<
-        GeoJSONSource['setData']
-      >[0],
-    );
+    buildingRoofMeshLayerRef.current?.setObjects(project.scene.objects);
+    map.triggerRepaint();
     (map.getSource('tree-crowns') as GeoJSONSource).setData(
       buildTreeCrownFeatureCollection(project.scene.objects) as unknown as Parameters<
         GeoJSONSource['setData']

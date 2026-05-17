@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { fetchDutchBuildingObjects } from '../data/dutchBuildings';
+import { fetchDutchTreeObjects } from '../data/dutchTrees';
 import { sceneObjectKindLabel } from '../model/sceneObjectLabels';
 import { useProjectStore } from '../store/projectStore';
 import type { BuildingObject, SceneObject, TreeObject } from '../model/schema';
@@ -28,6 +29,11 @@ export function ObjectsTab() {
   const [footprintText, setFootprintText] = useState('');
   const [footprintError, setFootprintError] = useState<string | null>(null);
   const [buildingImportState, setBuildingImportState] = useState<{
+    loading: boolean;
+    message: string | null;
+    error: string | null;
+  }>({ loading: false, message: null, error: null });
+  const [treeImportState, setTreeImportState] = useState<{
     loading: boolean;
     message: string | null;
     error: string | null;
@@ -108,6 +114,32 @@ export function ObjectsTab() {
     }
   };
 
+  const importTrees = async () => {
+    setTreeImportState({ loading: true, message: null, error: null });
+    try {
+      const trees = await fetchDutchTreeObjects(project.location);
+      const existingCenters = project.scene.objects
+        .filter((object): object is TreeObject => object.kind === 'tree')
+        .map((object) => object.position);
+      const newTrees = trees.filter((tree) => !existingCenters.some((position) => distanceMeters(position, tree.position) < 1));
+      for (const tree of newTrees) addSceneObject(tree);
+      setTreeImportState({
+        loading: false,
+        message:
+          newTrees.length === 0
+            ? 'Geen nieuwe bomen gevonden rond deze locatie.'
+            : `${newTrees.length} boom/bomen automatisch toegevoegd.`,
+        error: null,
+      });
+    } catch (err) {
+      setTreeImportState({
+        loading: false,
+        message: null,
+        error: (err as Error).message,
+      });
+    }
+  };
+
   return (
     <div className="panel-content editor-page">
       <aside className="editor-sidebar">
@@ -140,6 +172,9 @@ export function ObjectsTab() {
             <button type="button" disabled={buildingImportState.loading} onClick={importBuildings}>
               {buildingImportState.loading ? 'Gebouwen ophalen…' : 'Gebouwen automatisch ophalen'}
             </button>
+            <button type="button" disabled={treeImportState.loading} onClick={importTrees}>
+              {treeImportState.loading ? 'Bomen ophalen…' : 'Bomen automatisch ophalen'}
+            </button>
           </div>
           {buildingImportState.message && <p className="status-message">{buildingImportState.message}</p>}
           {buildingImportState.error && (
@@ -147,15 +182,15 @@ export function ObjectsTab() {
               Automatisch ophalen mislukt: {buildingImportState.error}
             </p>
           )}
+          {treeImportState.message && <p className="status-message">{treeImportState.message}</p>}
+          {treeImportState.error && (
+            <p role="alert" className="error">
+              Automatisch bomen ophalen mislukt: {treeImportState.error}
+            </p>
+          )}
           <details className="automation-plan">
-            <summary>Plan voor automatische bomen uit AHN DSM</summary>
-            <ol>
-              <li>Haal AHN DSM en DTM rastertegels op voor dezelfde bounding box als het project.</li>
-              <li>Bereken objecthoogte als DSM minus DTM en verwijder gebouwpixels met BAG/3D BAG-footprints.</li>
-              <li>Cluster overblijvende vegetatie boven een hoogte- en kroondrempel tot boomkandidaten.</li>
-              <li>Leid per cluster positie, kroonradius, hoogte, stamhoogte en dichtheid af voor de schaduwobjecten.</li>
-              <li>Laat de gebruiker de automatisch gevonden bomen controleren voordat ze definitief worden opgeslagen.</li>
-            </ol>
+            <summary>Automatische objecten</summary>
+            <p>Gebouwen worden opgehaald uit 3D BAG met dakvlakken waar beschikbaar. Bomen worden uit OpenStreetMap-boomdata rond de projectlocatie toegevoegd.</p>
           </details>
         </header>
 
