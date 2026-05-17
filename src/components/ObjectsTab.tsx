@@ -190,7 +190,7 @@ export function ObjectsTab() {
           )}
           <details className="automation-plan">
             <summary>Automatische objecten</summary>
-            <p>Gebouwen worden opgehaald uit 3D BAG met dakvlakken waar beschikbaar. Bomen worden uit OpenStreetMap-boomdata rond de projectlocatie toegevoegd.</p>
+            <p>Gebouwen worden opgehaald uit 3D BAG met dakvlakken waar beschikbaar. Bomen worden gedetecteerd in de AHN hoogtedata (DSM − DTM), met OpenStreetMap als fallback.</p>
           </details>
         </header>
 
