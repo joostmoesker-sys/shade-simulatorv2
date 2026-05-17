@@ -143,6 +143,9 @@ describe('<ProjectMap>', () => {
         expect.objectContaining({ id: 'buildings-extrusion', type: 'fill-extrusion' }),
       );
       expect(FakeMap.instances[0].addLayer).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'building-roofs-extrusion', type: 'fill-extrusion' }),
+      );
+      expect(FakeMap.instances[0].addLayer).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'tree-crowns-extrusion', type: 'fill-extrusion' }),
       );
     });

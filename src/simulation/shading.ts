@@ -100,19 +100,36 @@ function undergrowthOpacity(object: Extract<SceneObject, { kind: 'tree' }>): num
   return treeOpacity(object.density) * factor;
 }
 
-function buildingShadow(object: Extract<SceneObject, { kind: 'building' }>, solar: SolarPosition): ShadePreviewFeature | null {
-  const lengthM = shadowLengthM(object.heightM, solar);
+function shadowFromRing(
+  object: Extract<SceneObject, { kind: 'building' }>,
+  ringSource: [number, number][],
+  heightM: number,
+  solar: SolarPosition,
+  idSuffix = '',
+): ShadePreviewFeature | null {
+  const lengthM = shadowLengthM(heightM, solar);
   if (lengthM <= 0) return null;
   const shadowBearing = (solar.azimuthDeg + 180) % 360;
-  const footprint = closeRing(object.footprint);
+  const footprint = closeRing(ringSource);
   const shifted = shiftRing(footprint, shadowBearing, lengthM);
   const ring = convexHull([...footprint, ...shifted]);
   return {
     type: 'Feature',
-    id: `shadow_${object.id}`,
-    properties: { id: `shadow_${object.id}`, objectId: object.id, kind: object.kind, part: 'building', opacity: 0.55 },
+    id: `shadow_${object.id}${idSuffix}`,
+    properties: { id: `shadow_${object.id}${idSuffix}`, objectId: object.id, kind: object.kind, part: 'building', opacity: 0.55 },
     geometry: { type: 'Polygon', coordinates: [ring] },
   };
+}
+
+function buildingShadows(object: Extract<SceneObject, { kind: 'building' }>, solar: SolarPosition): ShadePreviewFeature[] {
+  if (!object.roofSurfaces?.length) {
+    return [shadowFromRing(object, object.footprint, object.heightM, solar)].filter(
+      (feature): feature is ShadePreviewFeature => feature !== null,
+    );
+  }
+  return object.roofSurfaces
+    .map((surface, index) => shadowFromRing(object, surface.footprint, surface.heightM, solar, `_roof_${index}`))
+    .filter((feature): feature is ShadePreviewFeature => feature !== null);
 }
 
 function treeCrownShadow(
@@ -233,7 +250,7 @@ export function buildShadowFeatureCollection(
   return {
     type: 'FeatureCollection',
     features: objects.flatMap((object) => {
-      if (object.kind === 'building') return buildingShadow(object, solar) ?? [];
+      if (object.kind === 'building') return buildingShadows(object, solar);
       if (object.kind === 'tree') {
         return [treeCrownShadow(object, solar, date), treeUndergrowthShadow(object, solar, date)].filter(
           (feature): feature is ShadePreviewFeature => feature !== null,

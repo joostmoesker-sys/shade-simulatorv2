@@ -72,6 +72,64 @@ describe('dutchBuildings', () => {
     });
   });
 
+  it('preserves 3D BAG CityJSON roof surfaces for non-flat buildings', () => {
+    const buildings = parseDutchBuildingResponse({
+      type: 'CityJSONFeature',
+      transform: { scale: [1, 1, 1], translate: [0, 0, 0] },
+      vertices: [
+        [5, 52, 0],
+        [5.0002, 52, 0],
+        [5.0002, 52.0001, 0],
+        [5, 52.0001, 0],
+        [5, 52, 3],
+        [5.0002, 52, 3],
+        [5.0002, 52.0001, 3],
+        [5, 52.0001, 3],
+        [5.0001, 52.00005, 4],
+      ],
+      CityObjects: {
+        pand: {
+          geometry: [
+            {
+              type: 'MultiSurface',
+              boundaries: [
+                [[0, 1, 2, 3, 0]],
+                [[4, 5, 8, 4]],
+                [[5, 6, 7, 8, 5]],
+              ],
+              semantics: {
+                surfaces: [{ type: 'GroundSurface' }, { type: 'RoofSurface' }],
+                values: [0, 1, 1],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(buildings[0]).toMatchObject({
+      heightM: 4,
+      footprint: [
+        [5, 52],
+        [5.0002, 52],
+        [5.0002, 52.0001],
+        [5, 52.0001],
+      ],
+      roofSurfaces: [
+        {
+          baseHeightM: 3,
+          heightM: 4,
+          footprint: [
+            [5, 52],
+            [5.0002, 52],
+            [5.0001, 52.00005],
+          ],
+        },
+        expect.objectContaining({ baseHeightM: 3, heightM: 4 }),
+      ],
+    });
+  });
+
   it('fetches and parses buildings with an injectable fetch implementation', async () => {
     const fetchImpl = vi.fn(async () => ({
       ok: true,

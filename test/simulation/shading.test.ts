@@ -88,6 +88,47 @@ describe('shading preview', () => {
     expect(summer.features[0].geometry.coordinates[0][0][1]).not.toBe(winter.features[0].geometry.coordinates[0][0][1]);
   });
 
+  it('projects imported roof surfaces separately for non-flat building shadows', () => {
+    const building: SceneObject = {
+      id: 'building',
+      kind: 'building',
+      name: 'Huis',
+      position: { lat: 52, lon: 5 },
+      footprint: [
+        [4.99995, 51.99995],
+        [5.00005, 51.99995],
+        [5.00005, 52.00005],
+        [4.99995, 52.00005],
+      ],
+      heightM: 7,
+      roofSurfaces: [
+        {
+          footprint: [
+            [4.99995, 51.99995],
+            [5.00005, 51.99995],
+            [5, 52.00005],
+          ],
+          baseHeightM: 4,
+          heightM: 7,
+        },
+        {
+          footprint: [
+            [4.99995, 52.00005],
+            [5, 52.00005],
+            [5.00005, 51.99995],
+          ],
+          baseHeightM: 4,
+          heightM: 7,
+        },
+      ],
+    };
+
+    const shadows = buildShadowFeatureCollection([building], { azimuthDeg: 180, elevationDeg: 30, zenithDeg: 60 });
+
+    expect(shadows.features).toHaveLength(2);
+    expect(shadows.features.map((feature) => feature.id)).toEqual(['shadow_building_roof_0', 'shadow_building_roof_1']);
+  });
+
   it('estimates array shade when an array point falls inside a shadow polygon', () => {
     const array: PVArray = {
       id: 'array',

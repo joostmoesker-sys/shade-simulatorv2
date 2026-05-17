@@ -46,18 +46,43 @@ function buildSceneFeatureCollection(objects: SceneObject[]): Record<string, unk
     features: objects.map((object) => ({
       type: 'Feature',
       id: object.id,
-        properties: {
-          id: object.id,
-          name: object.name,
-          kind: object.kind,
-          heightM: object.kind === 'tree' || object.kind === 'building' ? object.heightM : 0,
-          trunkHeightM: object.kind === 'tree' ? object.trunkHeightM : 0,
-        },
+      properties: {
+        id: object.id,
+        name: object.name,
+        kind: object.kind,
+        heightM:
+          object.kind === 'building' && object.roofSurfaces?.length
+            ? Math.min(...object.roofSurfaces.map((surface) => surface.baseHeightM))
+            : object.kind === 'tree' || object.kind === 'building'
+              ? object.heightM
+              : 0,
+        trunkHeightM: object.kind === 'tree' ? object.trunkHeightM : 0,
+      },
       geometry:
         object.kind === 'building'
           ? { type: 'Polygon', coordinates: [[...object.footprint, object.footprint[0]]] }
           : { type: 'Point', coordinates: [object.position.lon, object.position.lat] },
     })),
+  };
+}
+
+function buildBuildingRoofFeatureCollection(objects: SceneObject[]): Record<string, unknown> {
+  return {
+    type: 'FeatureCollection',
+    features: objects.flatMap((object) => {
+      if (object.kind !== 'building' || !object.roofSurfaces?.length) return [];
+      return object.roofSurfaces.map((surface, index) => ({
+        type: 'Feature',
+        id: `${object.id}-roof-${index}`,
+        properties: {
+          id: object.id,
+          roofId: `${object.id}-roof-${index}`,
+          heightM: surface.heightM,
+          baseHeightM: surface.baseHeightM,
+        },
+        geometry: { type: 'Polygon', coordinates: [[...surface.footprint, surface.footprint[0]]] },
+      }));
+    }),
   };
 }
 
@@ -124,6 +149,18 @@ function translateFootprint(
   const dLon = nextPosition.lon - building.position.lon;
   const dLat = nextPosition.lat - building.position.lat;
   return building.footprint.map(([lon, lat]) => [lon + dLon, lat + dLat]);
+}
+
+function translateRoofSurfaces(
+  building: BuildingObject,
+  nextPosition: LatLon,
+): BuildingObject['roofSurfaces'] {
+  const dLon = nextPosition.lon - building.position.lon;
+  const dLat = nextPosition.lat - building.position.lat;
+  return building.roofSurfaces?.map((surface) => ({
+    ...surface,
+    footprint: surface.footprint.map(([lon, lat]) => [lon + dLon, lat + dLat]),
+  }));
 }
 
 export function ProjectMap() {
@@ -221,6 +258,10 @@ export function ProjectMap() {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
+      map.addSource('building-roofs', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
       map.addLayer({
         id: 'buildings-fill',
         type: 'fill',
@@ -238,6 +279,17 @@ export function ProjectMap() {
           'fill-extrusion-height': ['get', 'heightM'],
           'fill-extrusion-base': 0,
           'fill-extrusion-opacity': 0.72,
+        },
+      });
+      map.addLayer({
+        id: 'building-roofs-extrusion',
+        type: 'fill-extrusion',
+        source: 'building-roofs',
+        paint: {
+          'fill-extrusion-color': '#9b5f34',
+          'fill-extrusion-height': ['get', 'heightM'],
+          'fill-extrusion-base': ['get', 'baseHeightM'],
+          'fill-extrusion-opacity': 0.86,
         },
       });
       map.addLayer({
@@ -385,6 +437,11 @@ export function ProjectMap() {
         GeoJSONSource['setData']
       >[0],
     );
+    (map.getSource('building-roofs') as GeoJSONSource).setData(
+      buildBuildingRoofFeatureCollection(project.scene.objects) as unknown as Parameters<
+        GeoJSONSource['setData']
+      >[0],
+    );
     (map.getSource('tree-crowns') as GeoJSONSource).setData(
       buildTreeCrownFeatureCollection(project.scene.objects) as unknown as Parameters<
         GeoJSONSource['setData']
@@ -471,7 +528,9 @@ export function ProjectMap() {
         if (!current || !isInsideNetherlands(position)) return;
         updateSceneObject(current.id, {
           position,
-          ...(current.kind === 'building' ? { footprint: translateFootprint(current, position) } : {}),
+          ...(current.kind === 'building'
+            ? { footprint: translateFootprint(current, position), roofSurfaces: translateRoofSurfaces(current, position) }
+            : {}),
         });
       });
       objectMarkerRef.current = marker;

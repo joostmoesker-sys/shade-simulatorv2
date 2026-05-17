@@ -9,9 +9,11 @@ const MIN_HEIGHT_M = 2;
 const FALLBACK_HEIGHT_M = 6;
 const MAX_HEIGHT_M = 80;
 
-type ImportedBuilding = Pick<BuildingObject, 'kind' | 'name' | 'position' | 'footprint' | 'heightM'>;
+type ImportedBuilding = Pick<BuildingObject, 'kind' | 'name' | 'position' | 'footprint' | 'heightM' | 'roofSurfaces'>;
 
 type JsonRecord = Record<string, unknown>;
+type CityPoint = [number, number, number];
+type CityPolygon = { ring: CityPoint[]; semanticType: string | null };
 
 interface FetchBuildingsOptions {
   radiusM?: number;
@@ -103,10 +105,11 @@ export async function fetchDutchBuildingObjects(
 export function parseDutchBuildingResponse(data: unknown): ImportedBuilding[] {
   const features = collectFeatures(data);
   return features.flatMap((feature, index) => {
-    const footprint = extractFootprint(feature);
-    if (!footprint) return [];
+    const geometry = extractBuildingGeometry(feature);
+    if (!geometry) return [];
+    const footprint = geometry.footprint;
     const position = centroid(footprint);
-    const heightM = extractHeightM(feature);
+    const heightM = extractHeightM(feature, geometry.heightM);
     return [
       {
         kind: 'building' as const,
@@ -114,6 +117,7 @@ export function parseDutchBuildingResponse(data: unknown): ImportedBuilding[] {
         position,
         footprint,
         heightM,
+        roofSurfaces: geometry.roofSurfaces,
       },
     ];
   });
@@ -173,10 +177,12 @@ function collectFeatures(data: unknown): JsonRecord[] {
   return [];
 }
 
-function extractFootprint(feature: JsonRecord): [number, number][] | null {
+function extractBuildingGeometry(
+  feature: JsonRecord,
+): { footprint: [number, number][]; heightM?: number; roofSurfaces?: BuildingObject['roofSurfaces'] } | null {
   const geoJsonFootprint = extractGeoJsonFootprint(asRecord(feature.geometry));
-  if (geoJsonFootprint) return geoJsonFootprint;
-  return extractCityJsonFootprint(feature);
+  if (geoJsonFootprint) return { footprint: geoJsonFootprint };
+  return extractCityJsonGeometry(feature);
 }
 
 function extractGeoJsonFootprint(geometry: JsonRecord | null): [number, number][] | null {
@@ -195,45 +201,135 @@ function extractGeoJsonFootprint(geometry: JsonRecord | null): [number, number][
   return null;
 }
 
-function extractCityJsonFootprint(feature: JsonRecord): [number, number][] | null {
+function extractCityJsonGeometry(
+  feature: JsonRecord,
+): { footprint: [number, number][]; heightM?: number; roofSurfaces?: BuildingObject['roofSurfaces'] } | null {
   if (!Array.isArray(feature.vertices)) return null;
   const transform = asRecord(feature.transform);
-  const scale = readNumberPair(transform?.scale, [1, 1]);
-  const translate = readNumberPair(transform?.translate, [0, 0]);
-  const vertices = feature.vertices.flatMap((raw) => {
+  const scale = readNumberTriple(transform?.scale, [1, 1, 1]);
+  const translate = readNumberTriple(transform?.translate, [0, 0, 0]);
+  const vertices: CityPoint[] = feature.vertices.flatMap((raw) => {
     if (!Array.isArray(raw)) return [];
-    const lon = readNumber(raw[0]);
-    const lat = readNumber(raw[1]);
-    if (lon === null || lat === null) return [];
-    return [[lon * scale[0] + translate[0], lat * scale[1] + translate[1]] as [number, number]];
+    const x = readNumber(raw[0]);
+    const y = readNumber(raw[1]);
+    const z = readNumber(raw[2]) ?? 0;
+    if (x === null || y === null) return [];
+    const point = normalizeCoordinate(x * scale[0] + translate[0], y * scale[1] + translate[1]);
+    return point ? [[point[0], point[1], z * scale[2] + translate[2]] as CityPoint] : [];
   });
-  if (!vertices.every(isDutchLonLat)) return null;
+  if (!vertices.every(([lon, lat]) => isDutchLonLat([lon, lat]))) return null;
 
   const cityObjects = asRecord(feature.CityObjects);
-  const boundaries = cityObjects
+  const polygons = cityObjects
     ? Object.values(cityObjects).flatMap((object) => {
         const geometries = asRecord(object)?.geometry;
         if (!Array.isArray(geometries)) return [];
-        return geometries.flatMap((geometry) => asRecord(geometry)?.boundaries ?? []);
+        return geometries.flatMap((geometry) => extractCityPolygons(asRecord(geometry), vertices));
       })
     : [];
-  const indices = new Set<number>();
-  for (const boundary of boundaries) collectVertexIndices(boundary, indices);
-  const points = [...indices].flatMap((index) => {
-    const point = vertices[index];
-    return point ? [point] : [];
-  });
-  return convexHull(points.length >= 3 ? points : vertices);
+  const minZ = Math.min(...vertices.map(([, , z]) => z));
+  const maxZ = Math.max(...vertices.map(([, , z]) => z));
+  const projectedVertices = vertices.map(([lon, lat]) => [lon, lat] as [number, number]);
+  const groundPolygons = polygons.filter((polygon) => polygon.semanticType === 'GroundSurface' || minHeight(polygon) <= minZ + 0.5);
+  const footprint = largestRing(groundPolygons.map((polygon) => projectRing(polygon.ring))) ?? convexHull(projectedVertices);
+  if (!footprint) return null;
+  const roofSurfaces = polygons
+    .filter((polygon) => polygon.semanticType === 'RoofSurface' || minHeight(polygon) > minZ + 1)
+    .map((polygon) => ({
+      footprint: projectRing(polygon.ring),
+      baseHeightM: clampNonNegative(minHeight(polygon) - minZ),
+      heightM: clampHeight(maxHeight(polygon) - minZ),
+    }))
+    .filter((surface) => surface.footprint.length >= 3 && surface.heightM > surface.baseHeightM + 0.1);
+
+  return {
+    footprint,
+    heightM: clampHeight(maxZ - minZ),
+    roofSurfaces: roofSurfaces.length > 0 ? roofSurfaces : undefined,
+  };
 }
 
-function collectVertexIndices(value: unknown, indices: Set<number>): void {
-  if (typeof value === 'number' && Number.isInteger(value)) {
-    indices.add(value);
+function extractCityPolygons(geometry: JsonRecord | null, vertices: CityPoint[]): CityPolygon[] {
+  if (!geometry || !Array.isArray(geometry.boundaries)) return [];
+  const semanticTypes = readSemanticTypes(asRecord(geometry.semantics));
+  const semanticValues = asRecord(geometry.semantics)?.values;
+  const polygons: CityPolygon[] = [];
+  collectCityPolygons(geometry.boundaries, semanticValues, semanticTypes, vertices, polygons);
+  return polygons;
+}
+
+function collectCityPolygons(
+  value: unknown,
+  semanticValue: unknown,
+  semanticTypes: string[],
+  vertices: CityPoint[],
+  polygons: CityPolygon[],
+): void {
+  if (isCityPolygonRings(value)) {
+    const ring = value[0].flatMap((index) => {
+      const point = vertices[index];
+      return point ? [point] : [];
+    });
+    const openRing = stripClosingCityPoint(ring);
+    if (openRing.length >= 3) {
+      polygons.push({ ring: openRing, semanticType: semanticTypes[firstSemanticIndex(semanticValue) ?? -1] ?? null });
+    }
     return;
   }
-  if (Array.isArray(value)) {
-    for (const item of value) collectVertexIndices(item, indices);
+  if (!Array.isArray(value)) return;
+  value.forEach((item, index) => {
+    collectCityPolygons(item, childSemanticValue(semanticValue, index), semanticTypes, vertices, polygons);
+  });
+}
+
+function isCityPolygonRings(value: unknown): value is number[][] {
+  return (
+    Array.isArray(value) &&
+    Array.isArray(value[0]) &&
+    value[0].length >= 3 &&
+    value[0].every((index) => typeof index === 'number' && Number.isInteger(index))
+  );
+}
+
+function readSemanticTypes(semantics: JsonRecord | null): string[] {
+  if (!semantics || !Array.isArray(semantics.surfaces)) return [];
+  return semantics.surfaces.map((surface) => {
+    const record = asRecord(surface);
+    return typeof record?.type === 'string' ? record.type : '';
+  });
+}
+
+function firstSemanticIndex(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (!Array.isArray(value)) return null;
+  for (const item of value) {
+    const index = firstSemanticIndex(item);
+    if (index !== null) return index;
   }
+  return null;
+}
+
+function childSemanticValue(value: unknown, index: number): unknown {
+  return Array.isArray(value) ? value[index] : value;
+}
+
+function stripClosingCityPoint(ring: CityPoint[]): CityPoint[] {
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (!first || !last) return ring;
+  return first[0] === last[0] && first[1] === last[1] && first[2] === last[2] ? ring.slice(0, -1) : ring;
+}
+
+function projectRing(ring: CityPoint[]): [number, number][] {
+  return ring.map(([lon, lat]) => [lon, lat]);
+}
+
+function minHeight(polygon: CityPolygon): number {
+  return Math.min(...polygon.ring.map(([, , z]) => z));
+}
+
+function maxHeight(polygon: CityPolygon): number {
+  return Math.max(...polygon.ring.map(([, , z]) => z));
 }
 
 function normalizeRing(rawRing: unknown): [number, number][] | null {
@@ -250,7 +346,7 @@ function normalizeRing(rawRing: unknown): [number, number][] | null {
   return openRing.length >= 3 ? openRing : null;
 }
 
-function extractHeightM(feature: JsonRecord): number {
+function extractHeightM(feature: JsonRecord, fallbackHeightM: number | undefined): number {
   const properties = asRecord(feature.properties) ?? feature;
   const roof =
     readFirstNumber(properties, ['b3_h_dak_50p', 'b3_h_dak_70p', 'roof_height', 'roofHeightM']) ??
@@ -262,7 +358,9 @@ function extractHeightM(feature: JsonRecord): number {
   const directHeight =
     absoluteHeight ??
     readFirstNumber(properties, ['height', 'heightM', 'gebouwhoogte', 'measuredHeight']) ??
-    readFirstNumber(feature, ['height', 'heightM']);
+    readFirstNumber(feature, ['height', 'heightM']) ??
+    fallbackHeightM ??
+    null;
   if (directHeight === null || directHeight < MIN_HEIGHT_M) return FALLBACK_HEIGHT_M;
   return Math.min(MAX_HEIGHT_M, Number(directHeight.toFixed(1)));
 }
@@ -462,9 +560,17 @@ function clampHeight(heightM: number): number {
   return Math.min(MAX_HEIGHT_M, Number(heightM.toFixed(1)));
 }
 
-function readNumberPair(value: unknown, fallback: [number, number]): [number, number] {
+function clampNonNegative(value: number): number {
+  return Math.max(0, Number(value.toFixed(1)));
+}
+
+function readNumberTriple(value: unknown, fallback: [number, number, number]): [number, number, number] {
   if (!Array.isArray(value)) return fallback;
-  return [readNumber(value[0]) ?? fallback[0], readNumber(value[1]) ?? fallback[1]];
+  return [
+    readNumber(value[0]) ?? fallback[0],
+    readNumber(value[1]) ?? fallback[1],
+    readNumber(value[2]) ?? fallback[2],
+  ];
 }
 
 function readFirstNumber(record: JsonRecord, keys: string[]): number | null {

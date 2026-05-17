@@ -109,6 +109,16 @@ export const BuildingObjectSchema = SceneObjectBase.extend({
     .array(z.tuple([FiniteNumber, FiniteNumber]))
     .min(3, 'building footprint needs at least 3 points'),
   heightM: Positive,
+  /** Optional roof polygons imported from 3D BAG/CityJSON for non-flat roof geometry. */
+  roofSurfaces: z
+    .array(
+      z.object({
+        footprint: z.array(z.tuple([FiniteNumber, FiniteNumber])).min(3),
+        baseHeightM: NonNegative.default(0),
+        heightM: Positive,
+      }),
+    )
+    .optional(),
 });
 export type BuildingObject = z.infer<typeof BuildingObjectSchema>;
 
