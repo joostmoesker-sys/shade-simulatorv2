@@ -1,6 +1,7 @@
 import type { BuildingObject, LatLon } from '../model/schema';
 
 const THREE_D_BAG_ITEMS_URL = 'https://api.3dbag.nl/collections/pand/items';
+const PDOK_BAG_WFS_URL = 'https://geodata.nationaalgeoregister.nl/bag/wfs/v1_1';
 const DEFAULT_RADIUS_M = 65;
 const DEFAULT_LIMIT = 40;
 const MIN_HEIGHT_M = 2;
@@ -26,18 +27,48 @@ export function buildThreeDBagItemsUrl(location: LatLon, radiusM = DEFAULT_RADIU
   return url.toString();
 }
 
+export function buildPdokBagWfsUrl(location: LatLon, radiusM = DEFAULT_RADIUS_M, limit = DEFAULT_LIMIT): string {
+  const center = wgs84ToRd(location);
+  const url = new URL(PDOK_BAG_WFS_URL);
+  url.searchParams.set('service', 'WFS');
+  url.searchParams.set('version', '1.1.0');
+  url.searchParams.set('request', 'GetFeature');
+  url.searchParams.set('typeName', 'bag:pand');
+  url.searchParams.set('outputFormat', 'application/json');
+  url.searchParams.set(
+    'bbox',
+    [
+      center.x - radiusM,
+      center.y - radiusM,
+      center.x + radiusM,
+      center.y + radiusM,
+      'urn:ogc:def:crs:EPSG::28992',
+    ].join(','),
+  );
+  url.searchParams.set('maxFeatures', String(limit));
+  return url.toString();
+}
+
 export async function fetchDutchBuildingObjects(
   location: LatLon,
   options: FetchBuildingsOptions = {},
 ): Promise<ImportedBuilding[]> {
-  const url = buildThreeDBagItemsUrl(location, options.radiusM, options.limit);
-  const response = await (options.fetchImpl ?? fetch)(url, {
-    headers: { Accept: 'application/json, application/geo+json' },
-  });
-  if (!response.ok) {
-    throw new Error(`3D BAG gebouwen ophalen mislukt (${response.status})`);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  try {
+    const data = await fetchJson(buildThreeDBagItemsUrl(location, options.radiusM, options.limit), fetchImpl, '3D BAG');
+    return parseDutchBuildingResponse(data);
+  } catch (primaryError) {
+    try {
+      const data = await fetchJson(buildPdokBagWfsUrl(location, options.radiusM, options.limit), fetchImpl, 'PDOK BAG');
+      return parsePdokBagResponse(data);
+    } catch (fallbackError) {
+      throw new Error(
+        `Gebouwen ophalen mislukt via 3D BAG en PDOK BAG. 3D BAG: ${messageOf(primaryError)}. PDOK BAG: ${messageOf(
+          fallbackError,
+        )}`,
+      );
+    }
   }
-  return parseDutchBuildingResponse(await response.json());
 }
 
 export function parseDutchBuildingResponse(data: unknown): ImportedBuilding[] {
@@ -57,6 +88,21 @@ export function parseDutchBuildingResponse(data: unknown): ImportedBuilding[] {
       },
     ];
   });
+}
+
+export function parsePdokBagResponse(data: unknown): ImportedBuilding[] {
+  return parseDutchBuildingResponse(data).map((building) => ({
+    ...building,
+    name: building.name.replace(/^3D BAG/, 'BAG'),
+  }));
+}
+
+async function fetchJson(url: string, fetchImpl: typeof fetch, label: string): Promise<unknown> {
+  const response = await fetchImpl(url, {
+    headers: { Accept: 'application/json, application/geo+json' },
+  });
+  if (!response.ok) throw new Error(`${label} gaf HTTP ${response.status}`);
+  return response.json();
 }
 
 function collectFeatures(data: unknown): JsonRecord[] {
@@ -139,11 +185,8 @@ function normalizeRing(rawRing: unknown): [number, number][] | null {
   if (!Array.isArray(rawRing)) return null;
   const ring = rawRing.flatMap((raw) => {
     if (!Array.isArray(raw)) return [];
-    const lon = readNumber(raw[0]);
-    const lat = readNumber(raw[1]);
-    if (lon === null || lat === null) return [];
-    const point: [number, number] = [lon, lat];
-    return isDutchLonLat(point) ? [point] : [];
+    const point = normalizeCoordinate(raw[0], raw[1]);
+    return point ? [point] : [];
   });
   const openRing =
     ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]
@@ -173,6 +216,18 @@ function extractName(feature: JsonRecord, index: number): string {
   const properties = asRecord(feature.properties);
   const id = readFirstString(properties ?? feature, ['identificatie', 'id', 'pand_id']) ?? readFirstString(feature, ['id']);
   return id ? `3D BAG ${id}` : `3D BAG gebouw ${index + 1}`;
+}
+
+function normalizeCoordinate(xRaw: unknown, yRaw: unknown): [number, number] | null {
+  const x = readNumber(xRaw);
+  const y = readNumber(yRaw);
+  if (x === null || y === null) return null;
+  if (isDutchLonLat([x, y])) return [x, y];
+  if (isRdCoordinate(x, y)) {
+    const { lat, lon } = rdToWgs84(x, y);
+    return [lon, lat];
+  }
+  return null;
 }
 
 function centroid(ring: [number, number][]): LatLon {
@@ -225,6 +280,86 @@ function cross(a: [number, number], b: [number, number], c: [number, number]): n
 
 function isDutchLonLat([lon, lat]: [number, number]): boolean {
   return lon >= 3.1 && lon <= 7.4 && lat >= 50.4 && lat <= 53.8;
+}
+
+function isRdCoordinate(x: number, y: number): boolean {
+  return x >= 0 && x <= 300_000 && y >= 300_000 && y <= 625_000;
+}
+
+function wgs84ToRd(location: LatLon): { x: number; y: number } {
+  const dLat = 0.36 * (location.lat - 52.1551744);
+  const dLon = 0.36 * (location.lon - 5.38720621);
+  const x =
+    155_000 +
+    [
+      [0, 1, 190_094.945],
+      [1, 1, -11_832.228],
+      [2, 1, -114.221],
+      [0, 3, -32.391],
+      [1, 0, -0.705],
+      [3, 1, -2.34],
+      [1, 3, -0.608],
+      [0, 2, -0.008],
+      [2, 3, 0.148],
+    ].reduce((sum, [p, q, k]) => sum + k * dLat ** p * dLon ** q, 0);
+  const y =
+    463_000 +
+    [
+      [1, 0, 309_056.544],
+      [0, 2, 3_638.893],
+      [2, 0, 73.077],
+      [1, 2, -157.984],
+      [3, 0, 59.788],
+      [0, 1, 0.433],
+      [2, 2, -6.439],
+      [1, 1, -0.032],
+      [0, 4, 0.092],
+      [1, 4, -0.054],
+    ].reduce((sum, [p, q, k]) => sum + k * dLat ** p * dLon ** q, 0);
+  return { x, y };
+}
+
+function rdToWgs84(x: number, y: number): LatLon {
+  const dX = (x - 155_000) * 1e-5;
+  const dY = (y - 463_000) * 1e-5;
+  const lat =
+    52.1551744 +
+    [
+      [0, 1, 3_235.65389],
+      [2, 0, -32.58297],
+      [0, 2, -0.2475],
+      [2, 1, -0.84978],
+      [0, 3, -0.0655],
+      [2, 2, -0.01709],
+      [1, 0, -0.00738],
+      [4, 0, 0.0053],
+      [2, 3, -0.00039],
+      [4, 1, 0.00033],
+      [1, 1, -0.00012],
+    ].reduce((sum, [p, q, k]) => sum + k * dX ** p * dY ** q, 0) /
+      3600;
+  const lon =
+    5.38720621 +
+    [
+      [1, 0, 5_260.52916],
+      [1, 1, 105.94684],
+      [1, 2, 2.45656],
+      [3, 0, -0.81885],
+      [1, 3, 0.05594],
+      [3, 1, -0.05607],
+      [0, 1, 0.01199],
+      [3, 2, -0.00256],
+      [1, 4, 0.00128],
+      [0, 2, 0.00022],
+      [2, 0, -0.00022],
+      [5, 0, 0.00026],
+    ].reduce((sum, [p, q, k]) => sum + k * dX ** p * dY ** q, 0) /
+      3600;
+  return { lat, lon };
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function asRecord(value: unknown): JsonRecord | null {
