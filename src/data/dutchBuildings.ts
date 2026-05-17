@@ -27,6 +27,9 @@ export function buildThreeDBagItemsUrl(location: LatLon, radiusM = DEFAULT_RADIU
   const url = new URL(THREE_D_BAG_ITEMS_URL);
   url.searchParams.set('bbox', [location.lon - dLon, location.lat - dLat, location.lon + dLon, location.lat + dLat].join(','));
   url.searchParams.set('limit', String(limit));
+  // Request CityJSON so we receive LoD2.2 geometries (with sloped roof shapes),
+  // not just the flat 2D footprints returned by the default GeoJSON output.
+  url.searchParams.set('f', 'cityjson');
   return url.toString();
 }
 
@@ -103,6 +106,8 @@ export async function fetchDutchBuildingObjects(
 }
 
 export function parseDutchBuildingResponse(data: unknown): ImportedBuilding[] {
+  const cityJsonBuildings = parseCityJsonDocument(data);
+  if (cityJsonBuildings !== null) return cityJsonBuildings;
   const features = collectFeatures(data);
   return features.flatMap((feature, index) => {
     const geometry = extractBuildingGeometry(feature);
@@ -235,16 +240,117 @@ function extractCityJsonGeometry(
   if (!vertices.every(([lon, lat]) => isDutchLonLat([lon, lat]))) return null;
 
   const cityObjects = asRecord(feature.CityObjects);
-  const polygons = cityObjects
+  const geometries = cityObjects
     ? Object.values(cityObjects).flatMap((object) => {
-        const geometries = asRecord(object)?.geometry;
-        if (!Array.isArray(geometries)) return [];
-        return geometries.flatMap((geometry) => extractCityPolygons(asRecord(geometry), vertices));
+        const list = asRecord(object)?.geometry;
+        return Array.isArray(list) ? list : [];
       })
     : [];
+  const selected = selectHighestLodGeometries(geometries);
+  const polygons = selected.flatMap((geometry) => extractCityPolygons(asRecord(geometry), vertices));
   return buildGeometryFromPolygons(
     polygons.length > 0 ? polygons : [{ ring: vertices, semanticType: null }],
   );
+}
+
+/**
+ * Parse a top-level 3D BAG CityJSON document (returned by `?f=cityjson`).
+ *
+ * The document contains a shared `vertices` array, an optional `transform`, and
+ * a `CityObjects` map. Each top-level Building object may delegate its
+ * geometry to one or more BuildingPart children listed in `children`. Every
+ * Building/BuildingPart can carry multiple geometries at different levels of
+ * detail (LoD 0, 1.2, 1.3, 2.2); we pick the highest available LoD per
+ * building so sloped LoD2.2 roof surfaces are preserved.
+ *
+ * Returns `null` when the input is not a CityJSON document so the GeoJSON
+ * code path can be used instead.
+ */
+function parseCityJsonDocument(data: unknown): ImportedBuilding[] | null {
+  const record = asRecord(data);
+  if (!record || record.type !== 'CityJSON') return null;
+  if (!Array.isArray(record.vertices)) return [];
+  const transform = asRecord(record.transform);
+  const scale = readNumberTriple(transform?.scale, [1, 1, 1]);
+  const translate = readNumberTriple(transform?.translate, [0, 0, 0]);
+  const vertices: CityPoint[] = record.vertices.flatMap((raw) => {
+    if (!Array.isArray(raw)) return [];
+    const x = readNumber(raw[0]);
+    const y = readNumber(raw[1]);
+    const z = readNumber(raw[2]) ?? 0;
+    if (x === null || y === null) return [];
+    const point = normalizeCoordinate(x * scale[0] + translate[0], y * scale[1] + translate[1]);
+    return point ? [[point[0], point[1], z * scale[2] + translate[2]] as CityPoint] : [];
+  });
+  if (vertices.length === 0) return [];
+
+  const cityObjects = asRecord(record.CityObjects);
+  if (!cityObjects) return [];
+
+  return Object.entries(cityObjects).flatMap(([id, value], index) => {
+    const object = asRecord(value);
+    if (!object || object.type !== 'Building') return [];
+    // Skip BuildingParts referenced from another Building.
+    if (Array.isArray(object.parents) && object.parents.length > 0) return [];
+
+    const childIds = Array.isArray(object.children)
+      ? object.children.filter((child): child is string => typeof child === 'string')
+      : [];
+    const geometryGroup: JsonRecord[] = [];
+    for (const objectId of [id, ...childIds]) {
+      const co = asRecord(cityObjects[objectId]);
+      if (!co || !Array.isArray(co.geometry)) continue;
+      for (const geometry of co.geometry) {
+        const geometryRecord = asRecord(geometry);
+        if (geometryRecord) geometryGroup.push(geometryRecord);
+      }
+    }
+    const selected = selectHighestLodGeometries(geometryGroup);
+    if (selected.length === 0) return [];
+
+    const polygons = selected.flatMap((geometry) => extractCityPolygons(geometry, vertices));
+    if (polygons.length === 0) return [];
+    const geometry = buildGeometryFromPolygons(polygons);
+    if (!geometry) return [];
+
+    const attributes = asRecord(object.attributes) ?? {};
+    const syntheticFeature: JsonRecord = { id, properties: attributes };
+    return [
+      {
+        kind: 'building' as const,
+        name: extractName(syntheticFeature, index),
+        position: centroid(geometry.footprint),
+        footprint: geometry.footprint,
+        heightM: extractHeightM(syntheticFeature, geometry.heightM),
+        roofSurfaces: geometry.roofSurfaces,
+      },
+    ];
+  });
+}
+
+/**
+ * Pick the highest available LoD from a list of CityJSON geometries. The 3D
+ * BAG ships block models (LoD 1.2, 1.3) alongside the sloped LoD 2.2 roof
+ * model; we only want one LoD per building, otherwise the parser would mix
+ * flat block tops with the real roof surfaces.
+ */
+function selectHighestLodGeometries(geometries: JsonRecord[]): JsonRecord[] {
+  if (geometries.length === 0) return [];
+  const groups = new Map<number, JsonRecord[]>();
+  const unlabelled: JsonRecord[] = [];
+  for (const geometry of geometries) {
+    const lod = readNumberLike(geometry.lod);
+    if (lod === null) {
+      unlabelled.push(geometry);
+    } else {
+      const bucket = groups.get(lod) ?? [];
+      bucket.push(geometry);
+      groups.set(lod, bucket);
+    }
+  }
+  if (groups.size === 0) return unlabelled;
+  const highest = [...groups.keys()].reduce((a, b) => (a > b ? a : b));
+  return groups.get(highest) ?? unlabelled;
 }
 
 function buildGeometryFromPolygons(

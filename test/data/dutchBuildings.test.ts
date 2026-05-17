@@ -17,6 +17,8 @@ describe('dutchBuildings', () => {
     expect(url.origin + url.pathname).toBe('https://api.3dbag.nl/collections/pand/items');
     expect(url.searchParams.get('bbox')?.split(',')).toHaveLength(4);
     expect(url.searchParams.get('limit')).toBe('12');
+    // Requesting CityJSON gives us LoD2.2 with sloped roofs instead of flat boxes.
+    expect(url.searchParams.get('f')).toBe('cityjson');
   });
 
   it('builds a bounded PDOK BAG WFS fallback request in RD coordinates', () => {
@@ -173,6 +175,113 @@ describe('dutchBuildings', () => {
       [5.0002, 52, 0],
       [5.0001, 52.0001, 2],
     ]);
+  });
+
+  it('parses a top-level 3D BAG CityJSON document and prefers LoD2.2 roof shapes over LoD1.2 boxes', () => {
+    const buildings = parseDutchBuildingResponse({
+      type: 'CityJSON',
+      version: '1.1',
+      transform: { scale: [1, 1, 1], translate: [0, 0, 0] },
+      // Vertices 0..3 are the ground ring; 4..7 are the LoD1.2 flat-top box;
+      // 8..11 are the LoD2.2 eaves; 12 is the ridge that gives a saddle roof.
+      vertices: [
+        [5, 52, 0],
+        [5.0002, 52, 0],
+        [5.0002, 52.0001, 0],
+        [5, 52.0001, 0],
+        [5, 52, 6],
+        [5.0002, 52, 6],
+        [5.0002, 52.0001, 6],
+        [5, 52.0001, 6],
+        [5, 52, 4],
+        [5.0002, 52, 4],
+        [5.0002, 52.0001, 4],
+        [5, 52.0001, 4],
+        [5.0001, 52.00005, 7],
+      ],
+      CityObjects: {
+        'NL.IMBAG.Pand.0001': {
+          type: 'Building',
+          attributes: { identificatie: '0001', b3_h_dak_50p: 9, b3_h_maaiveld: 2 },
+          children: ['NL.IMBAG.Pand.0001-0'],
+          geometry: [
+            {
+              type: 'MultiSurface',
+              lod: '0',
+              boundaries: [[[0, 1, 2, 3]]],
+              semantics: { surfaces: [{ type: 'GroundSurface' }], values: [0] },
+            },
+          ],
+        },
+        'NL.IMBAG.Pand.0001-0': {
+          type: 'BuildingPart',
+          parents: ['NL.IMBAG.Pand.0001'],
+          geometry: [
+            {
+              type: 'MultiSurface',
+              lod: '1.2',
+              boundaries: [[[0, 1, 2, 3]], [[4, 5, 6, 7]]],
+              semantics: { surfaces: [{ type: 'GroundSurface' }, { type: 'RoofSurface' }], values: [0, 1] },
+            },
+            {
+              type: 'MultiSurface',
+              lod: '2.2',
+              boundaries: [
+                [[0, 1, 2, 3]],
+                [[8, 9, 12]],
+                [[9, 10, 12]],
+                [[10, 11, 12]],
+                [[11, 8, 12]],
+              ],
+              semantics: {
+                surfaces: [{ type: 'GroundSurface' }, { type: 'RoofSurface' }],
+                values: [0, 1, 1, 1, 1],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(buildings).toHaveLength(1);
+    expect(buildings[0].name).toBe('3D BAG 0001');
+    // Building height is read from the LoD2.2 ridge (7m above ground), not from the LoD1.2 box (6m).
+    expect(buildings[0].heightM).toBe(7);
+    expect(buildings[0].roofSurfaces).toHaveLength(4);
+    // Each LoD2.2 triangle has a unique ridge vertex (z=3 above eaves at z=4), proving the sloped roof survives.
+    const ridgeHeights = buildings[0].roofSurfaces?.map((surface) => surface.heightM) ?? [];
+    expect(ridgeHeights.every((heightM) => heightM === 7)).toBe(true);
+    const eaveHeights = buildings[0].roofSurfaces?.map((surface) => surface.baseHeightM) ?? [];
+    expect(eaveHeights.every((heightM) => heightM === 4)).toBe(true);
+  });
+
+  it('skips BuildingParts at the top level when parsing a CityJSON document', () => {
+    const buildings = parseDutchBuildingResponse({
+      type: 'CityJSON',
+      transform: { scale: [1, 1, 1], translate: [0, 0, 0] },
+      vertices: [
+        [5, 52, 0],
+        [5.0001, 52, 0],
+        [5.0001, 52.0001, 0],
+        [5, 52, 3],
+      ],
+      CityObjects: {
+        part: {
+          type: 'BuildingPart',
+          parents: ['parent'],
+          geometry: [
+            {
+              type: 'MultiSurface',
+              lod: '2.2',
+              boundaries: [[[0, 1, 2]], [[0, 1, 3]]],
+              semantics: { surfaces: [{ type: 'GroundSurface' }, { type: 'RoofSurface' }], values: [0, 1] },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(buildings).toEqual([]);
   });
 
   it('fetches and parses buildings with an injectable fetch implementation', async () => {
