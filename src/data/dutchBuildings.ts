@@ -1,7 +1,7 @@
 import type { BuildingObject, LatLon } from '../model/schema';
 import { isDutchLonLat, isRdCoordinate, rdToWgs84, wgs84ToRd } from './rdProjection';
 
-const THREE_D_BAG_ITEMS_URL = 'https://api.3dbag.nl/collections/pand/items';
+const THREE_D_BAG_ITEMS_URL = 'https://api.3dbag.nl/v3/collections/pand/items';
 const PDOK_BAG_WFS_URL = 'https://geodata.nationaalgeoregister.nl/bag/wfs/v1_1';
 const OPENSTREETMAP_OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 const DEFAULT_RADIUS_M = 65;

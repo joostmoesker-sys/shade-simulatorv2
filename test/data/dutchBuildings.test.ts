@@ -14,7 +14,7 @@ describe('dutchBuildings', () => {
   it('builds a bounded 3D BAG request around a location', () => {
     const url = new URL(buildThreeDBagItemsUrl({ lat: 52, lon: 5 }, 50, 12));
 
-    expect(url.origin + url.pathname).toBe('https://api.3dbag.nl/collections/pand/items');
+    expect(url.origin + url.pathname).toBe('https://api.3dbag.nl/v3/collections/pand/items');
     expect(url.searchParams.get('bbox')?.split(',')).toHaveLength(4);
     expect(url.searchParams.get('limit')).toBe('12');
     // Requesting CityJSON gives us LoD2.2 with sloped roofs instead of flat boxes.
