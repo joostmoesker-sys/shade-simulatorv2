@@ -3,6 +3,16 @@ import { isDutchLonLat, isRdCoordinate, rdToWgs84, wgs84ToRd } from './rdProject
 
 const THREE_D_BAG_ITEMS_URL = 'https://api.3dbag.nl/collections/pand/items';
 const THREE_D_BAG_BBOX_CRS = 'http://www.opengis.net/def/crs/EPSG/0/7415';
+// The 3DBAG OGC API does NOT send `Access-Control-Allow-Origin`, so a direct
+// browser fetch is rejected by the CORS preflight check. That silent failure
+// is what was causing the importer to fall through to the 2D-only PDOK BAG
+// service, which is why imported buildings only showed up as flat boxes
+// without sloped roofs. We retry the same request through a public CORS
+// proxy so the LoD2.2 CityJSON tiles actually reach the browser.
+const THREE_D_BAG_CORS_PROXIES = [
+  (url: string) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
 const PDOK_BAG_WFS_URL = 'https://service.pdok.nl/lv/bag/wfs/v2_0';
 const OPENSTREETMAP_OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 const DEFAULT_RADIUS_M = 65;
@@ -92,39 +102,46 @@ export async function fetchDutchBuildingObjects(
 ): Promise<ImportedBuilding[]> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const errors: string[] = [];
+  const directUrl = buildThreeDBagItemsUrl(location, options.radiusM, options.limit);
+  const threeDBagUrls = [directUrl, ...THREE_D_BAG_CORS_PROXIES.map((wrap) => wrap(directUrl))];
+  for (const url of threeDBagUrls) {
+    try {
+      const data = await fetchJson(url, fetchImpl, '3D BAG', 8_000);
+      return parseDutchBuildingResponse(data);
+    } catch (primaryError) {
+      errors.push(`3D BAG (${shortHost(url)}): ${messageOf(primaryError)}`);
+    }
+  }
   try {
     const data = await fetchJson(
-      buildThreeDBagItemsUrl(location, options.radiusM, options.limit),
+      buildPdokBagWfsUrl(location, options.radiusM, options.limit),
       fetchImpl,
-      '3D BAG',
+      'PDOK BAG',
       8_000,
     );
-    return parseDutchBuildingResponse(data);
-  } catch (primaryError) {
-    errors.push(`3D BAG: ${messageOf(primaryError)}`);
+    return parsePdokBagResponse(data);
+  } catch (fallbackError) {
+    errors.push(`PDOK BAG: ${messageOf(fallbackError)}`);
     try {
       const data = await fetchJson(
-        buildPdokBagWfsUrl(location, options.radiusM, options.limit),
+        buildOpenStreetMapOverpassUrl(location, options.radiusM, options.limit),
         fetchImpl,
-        'PDOK BAG',
-        8_000,
+        'OpenStreetMap',
+        20_000,
       );
-      return parsePdokBagResponse(data);
-    } catch (fallbackError) {
-      errors.push(`PDOK BAG: ${messageOf(fallbackError)}`);
-      try {
-        const data = await fetchJson(
-          buildOpenStreetMapOverpassUrl(location, options.radiusM, options.limit),
-          fetchImpl,
-          'OpenStreetMap',
-          20_000,
-        );
-        return parseOpenStreetMapBuildingsResponse(data);
-      } catch (openStreetMapError) {
-        errors.push(`OpenStreetMap: ${messageOf(openStreetMapError)}`);
-        throw new Error(`Gebouwen ophalen mislukt via 3D BAG, PDOK BAG en OpenStreetMap. ${errors.join('. ')}`);
-      }
+      return parseOpenStreetMapBuildingsResponse(data);
+    } catch (openStreetMapError) {
+      errors.push(`OpenStreetMap: ${messageOf(openStreetMapError)}`);
+      throw new Error(`Gebouwen ophalen mislukt via 3D BAG, PDOK BAG en OpenStreetMap. ${errors.join('. ')}`);
     }
+  }
+}
+
+function shortHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
   }
 }
 

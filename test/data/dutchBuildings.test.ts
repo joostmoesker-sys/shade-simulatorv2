@@ -378,6 +378,10 @@ describe('dutchBuildings', () => {
   it('falls back to PDOK BAG when 3D BAG cannot be fetched', async () => {
     const fetchImpl = vi
       .fn()
+      // Direct + 2 CORS-proxy attempts to 3DBAG all fail (typical when the
+      // upstream blocks browsers and the public proxies are also unreachable).
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockResolvedValueOnce({
         ok: true,
@@ -405,7 +409,7 @@ describe('dutchBuildings', () => {
 
     const buildings = await fetchDutchBuildingObjects({ lat: 51.25, lon: 5.98 }, { fetchImpl });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
     expect(buildings[0].name).toBe('BAG pand-2');
     expect(buildings[0].heightM).toBe(6);
     expect(buildings[0].footprint[0][0]).toBeGreaterThan(3.1);
@@ -415,6 +419,9 @@ describe('dutchBuildings', () => {
   it('falls back to OpenStreetMap when 3D BAG and PDOK BAG cannot be fetched', async () => {
     const fetchImpl = vi
       .fn()
+      // 3DBAG direct + 2 CORS proxies, then PDOK BAG, all fail.
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockResolvedValueOnce({
@@ -438,7 +445,7 @@ describe('dutchBuildings', () => {
 
     const buildings = await fetchDutchBuildingObjects({ lat: 51.25, lon: 5.98 }, { fetchImpl });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
     expect(buildings[0]).toMatchObject({
       name: 'OpenStreetMap 123',
       heightM: 6,
@@ -449,6 +456,77 @@ describe('dutchBuildings', () => {
       ],
     });
   });
+
+  it('retries 3D BAG through a CORS proxy when the direct request is blocked', async () => {
+    // Browsers reject the direct api.3dbag.nl call with an opaque
+    // "TypeError: Failed to fetch" because the upstream sends no CORS headers.
+    // The importer must transparently retry through the corsproxy.io URL so
+    // sloped LoD2.2 roof geometry still reaches the scene.
+    const cityJsonResponse = {
+      type: 'FeatureCollection',
+      metadata: {
+        type: 'CityJSON',
+        version: '1.1',
+        transform: { scale: [1, 1, 1], translate: [155_000, 463_000, 0] },
+      },
+      features: [
+        {
+          type: 'CityJSONFeature',
+          id: 'NL.IMBAG.Pand.proxy-1',
+          vertices: [
+            [0, 0, 0],
+            [20, 0, 0],
+            [20, 10, 0],
+            [0, 10, 0],
+            [10, 5, 8],
+          ],
+          CityObjects: {
+            'NL.IMBAG.Pand.proxy-1': {
+              type: 'Building',
+              attributes: { identificatie: 'proxy-1' },
+              children: ['NL.IMBAG.Pand.proxy-1-0'],
+            },
+            'NL.IMBAG.Pand.proxy-1-0': {
+              type: 'BuildingPart',
+              parents: ['NL.IMBAG.Pand.proxy-1'],
+              geometry: [
+                {
+                  type: 'Solid',
+                  lod: '2.2',
+                  boundaries: [[[[0, 1, 2, 3]]], [[[0, 1, 4]]], [[[1, 2, 4]]], [[[2, 3, 4]]], [[[3, 0, 4]]]],
+                  semantics: {
+                    surfaces: [
+                      { type: 'GroundSurface' },
+                      { type: 'RoofSurface' },
+                      { type: 'RoofSurface' },
+                      { type: 'RoofSurface' },
+                      { type: 'RoofSurface' },
+                    ],
+                    values: [[0, 1, 1, 1, 1]],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ ok: true, json: async () => cityJsonResponse }) as unknown as typeof fetch;
+
+    const buildings = await fetchDutchBuildingObjects({ lat: 52.1, lon: 5.6 }, { fetchImpl });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const proxyCallUrl = (fetchImpl as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[1][0];
+    expect(proxyCallUrl).toMatch(/corsproxy\.io|allorigins/);
+    expect(proxyCallUrl).toContain(encodeURIComponent('api.3dbag.nl'));
+    expect(buildings).toHaveLength(1);
+    expect(buildings[0].name).toBe('3D BAG NL.IMBAG.Pand.proxy-1');
+    expect(buildings[0].roofSurfaces?.length ?? 0).toBeGreaterThan(0);
+  });
+
 
   it('aborts upstream calls that exceed the per-source timeout', async () => {
     // Each fetch should be invoked with an AbortSignal; if the signal aborts we
@@ -474,12 +552,12 @@ describe('dutchBuildings', () => {
         (value) => ({ ok: true as const, value }),
         (error: unknown) => ({ ok: false as const, error }),
       );
-      // 3DBAG (8s) + PDOK (8s) + OSM (20s) = 36s total worst case.
-      await vi.advanceTimersByTimeAsync(40_000);
+      // 3DBAG direct + 2 proxies (8s each) + PDOK (8s) + OSM (20s) = 60s worst case.
+      await vi.advanceTimersByTimeAsync(70_000);
       const result = await settled;
       expect(result.ok).toBe(false);
-      expect(String((result as { ok: false; error: unknown }).error)).toMatch(/3D BAG reageerde niet binnen 8s/);
-      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      expect(String((result as { ok: false; error: unknown }).error)).toMatch(/3D BAG.*reageerde niet binnen 8s/);
+      expect(fetchImpl).toHaveBeenCalledTimes(5);
       expect(fetchImpl.mock.calls.every(([, init]) => Boolean(init?.signal))).toBe(true);
     } finally {
       vi.useRealTimers();
