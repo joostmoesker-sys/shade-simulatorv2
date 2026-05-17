@@ -1,7 +1,8 @@
 import type { BuildingObject, LatLon } from '../model/schema';
 import { isDutchLonLat, isRdCoordinate, rdToWgs84, wgs84ToRd } from './rdProjection';
 
-const THREE_D_BAG_ITEMS_URL = 'https://api.3dbag.nl/v3/collections/pand/items';
+const THREE_D_BAG_ITEMS_URL = 'https://api.3dbag.nl/collections/pand/items';
+const THREE_D_BAG_BBOX_CRS = 'http://www.opengis.net/def/crs/EPSG/0/7415';
 const PDOK_BAG_WFS_URL = 'https://geodata.nationaalgeoregister.nl/bag/wfs/v1_1';
 const OPENSTREETMAP_OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 const DEFAULT_RADIUS_M = 65;
@@ -23,14 +24,19 @@ interface FetchBuildingsOptions {
 }
 
 export function buildThreeDBagItemsUrl(location: LatLon, radiusM = DEFAULT_RADIUS_M, limit = DEFAULT_LIMIT): string {
-  const dLat = radiusM / 111_320;
-  const dLon = radiusM / (111_320 * Math.cos((location.lat * Math.PI) / 180));
+  // The 3DBAG OGC Features API only accepts bbox in EPSG:7415 (Amersfoort / RD New + NAP).
+  // Any other CRS or unknown query parameter (e.g. `f=cityjson`) is rejected with HTTP 400,
+  // which previously caused the importer to fall back to the 2D-only PDOK BAG WFS — so
+  // sloped LoD2.2 roof shapes never made it into the scene. The response is always
+  // CityJSON wrapped in a FeatureCollection envelope.
+  const center = wgs84ToRd(location);
   const url = new URL(THREE_D_BAG_ITEMS_URL);
-  url.searchParams.set('bbox', [location.lon - dLon, location.lat - dLat, location.lon + dLon, location.lat + dLat].join(','));
+  url.searchParams.set(
+    'bbox',
+    [center.x - radiusM, center.y - radiusM, center.x + radiusM, center.y + radiusM].join(','),
+  );
+  url.searchParams.set('bbox-crs', THREE_D_BAG_BBOX_CRS);
   url.searchParams.set('limit', String(limit));
-  // Request CityJSON so we receive LoD2.2 geometries (with sloped roof shapes),
-  // not just the flat 2D footprints returned by the default GeoJSON output.
-  url.searchParams.set('f', 'cityjson');
   return url.toString();
 }
 
@@ -174,9 +180,18 @@ function collectFeatures(data: unknown): JsonRecord[] {
   const record = asRecord(data);
   if (!record) return [];
   if (Array.isArray(record.features)) {
+    // 3DBAG returns CityJSONFeatures inside a FeatureCollection envelope. The shared
+    // CityJSON `transform` (used to decode quantised integer vertices) lives in the
+    // envelope's `metadata` field — not on the individual features — so we inject it
+    // here so the existing per-feature CityJSON parser can decode vertices correctly.
+    const envelopeTransform = asRecord(asRecord(record.metadata)?.transform);
     return record.features.flatMap((item) => {
       const feature = asRecord(item);
-      return feature ? [feature] : [];
+      if (!feature) return [];
+      if (envelopeTransform && !asRecord(feature.transform)) {
+        return [{ ...feature, transform: envelopeTransform }];
+      }
+      return [feature];
     });
   }
   if (record.type === 'CityJSONFeature' || record.type === 'Feature') return [record];

@@ -11,14 +11,20 @@ import {
 } from '../../src/data/dutchBuildings';
 
 describe('dutchBuildings', () => {
-  it('builds a bounded 3D BAG request around a location', () => {
+  it('builds a bounded 3D BAG request around a location in RD coordinates', () => {
     const url = new URL(buildThreeDBagItemsUrl({ lat: 52, lon: 5 }, 50, 12));
 
-    expect(url.origin + url.pathname).toBe('https://api.3dbag.nl/v3/collections/pand/items');
-    expect(url.searchParams.get('bbox')?.split(',')).toHaveLength(4);
+    // The 3DBAG OGC Features API lives at the unversioned root; the only allowed
+    // bbox CRS is EPSG:7415 (Amersfoort/RD New + NAP) and `f=cityjson` is rejected.
+    expect(url.origin + url.pathname).toBe('https://api.3dbag.nl/collections/pand/items');
+    expect(url.searchParams.get('bbox-crs')).toBe('http://www.opengis.net/def/crs/EPSG/0/7415');
+    expect(url.searchParams.get('f')).toBeNull();
     expect(url.searchParams.get('limit')).toBe('12');
-    // Requesting CityJSON gives us LoD2.2 with sloped roofs instead of flat boxes.
-    expect(url.searchParams.get('f')).toBe('cityjson');
+    const bbox = url.searchParams.get('bbox')?.split(',').map(Number) ?? [];
+    expect(bbox).toHaveLength(4);
+    // Each axis should span exactly 2 × radius in RD metres.
+    expect(bbox[2] - bbox[0]).toBeCloseTo(100, 3);
+    expect(bbox[3] - bbox[1]).toBeCloseTo(100, 3);
   });
 
   it('builds a bounded PDOK BAG WFS fallback request in RD coordinates', () => {
@@ -282,6 +288,75 @@ describe('dutchBuildings', () => {
     });
 
     expect(buildings).toEqual([]);
+  });
+
+  it('decodes a 3DBAG FeatureCollection envelope using the shared metadata transform', () => {
+    // Mimic the real 3DBAG OGC Features response: a FeatureCollection envelope
+    // whose `metadata` field carries the CityJSON header (with the shared
+    // `transform` for the quantised integer vertices in each feature).
+    const buildings = parseDutchBuildingResponse({
+      type: 'FeatureCollection',
+      metadata: {
+        type: 'CityJSON',
+        version: '1.1',
+        // RD coordinates: translate is in EPSG:28992/7415 metres, scale is 1mm.
+        transform: { scale: [0.001, 0.001, 0.001], translate: [196000, 360000, 0] },
+      },
+      features: [
+        {
+          type: 'CityJSONFeature',
+          id: 'NL.IMBAG.Pand.0001',
+          // Integer triples that decode via scale+translate into a 10×10m square
+          // with a 4m eaves height and a 7m ridge — a classic saddle roof.
+          vertices: [
+            [0, 0, 0],
+            [10_000, 0, 0],
+            [10_000, 10_000, 0],
+            [0, 10_000, 0],
+            [0, 0, 4_000],
+            [10_000, 0, 4_000],
+            [10_000, 10_000, 4_000],
+            [0, 10_000, 4_000],
+            [5_000, 5_000, 7_000],
+          ],
+          CityObjects: {
+            'NL.IMBAG.Pand.0001': {
+              type: 'Building',
+              attributes: { identificatie: '0001' },
+              geometry: [
+                {
+                  type: 'MultiSurface',
+                  lod: '2.2',
+                  boundaries: [
+                    [[0, 1, 2, 3]],
+                    [[4, 5, 8]],
+                    [[5, 6, 8]],
+                    [[6, 7, 8]],
+                    [[7, 4, 8]],
+                  ],
+                  semantics: {
+                    surfaces: [{ type: 'GroundSurface' }, { type: 'RoofSurface' }],
+                    values: [0, 1, 1, 1, 1],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
+
+    expect(buildings).toHaveLength(1);
+    expect(buildings[0].heightM).toBe(7);
+    // Four triangular sloped roof faces survived (proves LoD2.2 made it through).
+    expect(buildings[0].roofSurfaces).toHaveLength(4);
+    expect(buildings[0].roofSurfaces?.every((surface) => surface.baseHeightM === 4)).toBe(true);
+    expect(buildings[0].roofSurfaces?.every((surface) => surface.heightM === 7)).toBe(true);
+    // Footprint is in WGS84 after the EPSG:7415 → WGS84 conversion.
+    expect(buildings[0].footprint[0][0]).toBeGreaterThan(5);
+    expect(buildings[0].footprint[0][0]).toBeLessThan(7);
+    expect(buildings[0].footprint[0][1]).toBeGreaterThan(51);
+    expect(buildings[0].footprint[0][1]).toBeLessThan(53);
   });
 
   it('fetches and parses buildings with an injectable fetch implementation', async () => {
