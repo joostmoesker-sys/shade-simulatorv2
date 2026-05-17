@@ -3,7 +3,7 @@ import { isDutchLonLat, isRdCoordinate, rdToWgs84, wgs84ToRd } from './rdProject
 
 const THREE_D_BAG_ITEMS_URL = 'https://api.3dbag.nl/collections/pand/items';
 const THREE_D_BAG_BBOX_CRS = 'http://www.opengis.net/def/crs/EPSG/0/7415';
-const PDOK_BAG_WFS_URL = 'https://geodata.nationaalgeoregister.nl/bag/wfs/v1_1';
+const PDOK_BAG_WFS_URL = 'https://service.pdok.nl/lv/bag/wfs/v2_0';
 const OPENSTREETMAP_OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 const DEFAULT_RADIUS_M = 65;
 const DEFAULT_LIMIT = 40;
@@ -43,11 +43,16 @@ export function buildThreeDBagItemsUrl(location: LatLon, radiusM = DEFAULT_RADIU
 export function buildPdokBagWfsUrl(location: LatLon, radiusM = DEFAULT_RADIUS_M, limit = DEFAULT_LIMIT): string {
   const center = wgs84ToRd(location);
   const url = new URL(PDOK_BAG_WFS_URL);
+  // The legacy geodata.nationaalgeoregister.nl/bag/wfs/v1_1 endpoint is no longer
+  // operational and was causing import requests to hang for ~30s before the
+  // browser timed out. PDOK now serves BAG via service.pdok.nl as WFS 2.0.0,
+  // which uses `typeNames` and `count` instead of `typeName` / `maxFeatures`.
   url.searchParams.set('service', 'WFS');
-  url.searchParams.set('version', '1.1.0');
+  url.searchParams.set('version', '2.0.0');
   url.searchParams.set('request', 'GetFeature');
-  url.searchParams.set('typeName', 'bag:pand');
+  url.searchParams.set('typeNames', 'bag:pand');
   url.searchParams.set('outputFormat', 'application/json');
+  url.searchParams.set('srsName', 'urn:ogc:def:crs:EPSG::28992');
   url.searchParams.set(
     'bbox',
     [
@@ -58,7 +63,7 @@ export function buildPdokBagWfsUrl(location: LatLon, radiusM = DEFAULT_RADIUS_M,
       'urn:ogc:def:crs:EPSG::28992',
     ].join(','),
   );
-  url.searchParams.set('maxFeatures', String(limit));
+  url.searchParams.set('count', String(limit));
   return url.toString();
 }
 
@@ -76,7 +81,7 @@ export function buildOpenStreetMapOverpassUrl(
   const url = new URL(OPENSTREETMAP_OVERPASS_URL);
   url.searchParams.set(
     'data',
-    `[out:json][timeout:25];(way["building"](${south},${west},${north},${east}););out geom qt ${limit};`,
+    `[out:json][timeout:15];(way["building"](${south},${west},${north},${east}););out geom qt ${limit};`,
   );
   return url.toString();
 }
@@ -88,12 +93,22 @@ export async function fetchDutchBuildingObjects(
   const fetchImpl = options.fetchImpl ?? fetch;
   const errors: string[] = [];
   try {
-    const data = await fetchJson(buildThreeDBagItemsUrl(location, options.radiusM, options.limit), fetchImpl, '3D BAG');
+    const data = await fetchJson(
+      buildThreeDBagItemsUrl(location, options.radiusM, options.limit),
+      fetchImpl,
+      '3D BAG',
+      8_000,
+    );
     return parseDutchBuildingResponse(data);
   } catch (primaryError) {
     errors.push(`3D BAG: ${messageOf(primaryError)}`);
     try {
-      const data = await fetchJson(buildPdokBagWfsUrl(location, options.radiusM, options.limit), fetchImpl, 'PDOK BAG');
+      const data = await fetchJson(
+        buildPdokBagWfsUrl(location, options.radiusM, options.limit),
+        fetchImpl,
+        'PDOK BAG',
+        8_000,
+      );
       return parsePdokBagResponse(data);
     } catch (fallbackError) {
       errors.push(`PDOK BAG: ${messageOf(fallbackError)}`);
@@ -102,6 +117,7 @@ export async function fetchDutchBuildingObjects(
           buildOpenStreetMapOverpassUrl(location, options.radiusM, options.limit),
           fetchImpl,
           'OpenStreetMap',
+          20_000,
         );
         return parseOpenStreetMapBuildingsResponse(data);
       } catch (openStreetMapError) {
@@ -168,12 +184,40 @@ export function parseOpenStreetMapBuildingsResponse(data: unknown): ImportedBuil
   });
 }
 
-async function fetchJson(url: string, fetchImpl: typeof fetch, label: string): Promise<unknown> {
-  const response = await fetchImpl(url, {
-    headers: { Accept: 'application/json, application/geo+json' },
-  });
-  if (!response.ok) throw new Error(`${label} gaf HTTP ${response.status}`);
-  return response.json();
+async function fetchJson(
+  url: string,
+  fetchImpl: typeof fetch,
+  label: string,
+  timeoutMs = 10_000,
+): Promise<unknown> {
+  // Wrap each upstream call in an AbortController so a single hanging endpoint
+  // (e.g. an unresponsive WFS server) can't stall the whole import waterfall.
+  // We previously waited the browser's full ~30s default, then ran two more
+  // fallbacks back-to-back, which made building import feel "stuck".
+  const controller =
+    typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer =
+    controller !== null
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : null;
+  try {
+    const response = await fetchImpl(url, {
+      headers: { Accept: 'application/json, application/geo+json' },
+      signal: controller?.signal,
+    });
+    if (!response.ok) throw new Error(`${label} gaf HTTP ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === 'AbortError' || error.name === 'TimeoutError')
+    ) {
+      throw new Error(`${label} reageerde niet binnen ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw error;
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
 }
 
 function collectFeatures(data: unknown): JsonRecord[] {

@@ -27,14 +27,18 @@ describe('dutchBuildings', () => {
     expect(bbox[3] - bbox[1]).toBeCloseTo(100, 3);
   });
 
-  it('builds a bounded PDOK BAG WFS fallback request in RD coordinates', () => {
+  it('builds a bounded PDOK BAG WFS 2.0 fallback request in RD coordinates', () => {
     const url = new URL(buildPdokBagWfsUrl({ lat: 51.25, lon: 5.98 }, 75, 25));
 
-    expect(url.origin + url.pathname).toBe('https://geodata.nationaalgeoregister.nl/bag/wfs/v1_1');
-    expect(url.searchParams.get('typeName')).toBe('bag:pand');
+    // The legacy v1_1 endpoint at geodata.nationaalgeoregister.nl is no longer
+    // operational and was making imports hang; PDOK now serves BAG as WFS 2.0.0
+    // (typeNames + count) at service.pdok.nl.
+    expect(url.origin + url.pathname).toBe('https://service.pdok.nl/lv/bag/wfs/v2_0');
+    expect(url.searchParams.get('version')).toBe('2.0.0');
+    expect(url.searchParams.get('typeNames')).toBe('bag:pand');
     expect(url.searchParams.get('outputFormat')).toBe('application/json');
     expect(url.searchParams.get('bbox')?.split(',')).toHaveLength(5);
-    expect(url.searchParams.get('maxFeatures')).toBe('25');
+    expect(url.searchParams.get('count')).toBe('25');
   });
 
   it('builds a bounded OpenStreetMap Overpass fallback request', () => {
@@ -366,9 +370,9 @@ describe('dutchBuildings', () => {
     })) as unknown as typeof fetch;
 
     await expect(fetchDutchBuildingObjects({ lat: 52, lon: 5 }, { fetchImpl })).resolves.toEqual([]);
-    expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('bbox='), {
+    expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('bbox='), expect.objectContaining({
       headers: { Accept: 'application/json, application/geo+json' },
-    });
+    }));
   });
 
   it('falls back to PDOK BAG when 3D BAG cannot be fetched', async () => {
@@ -445,6 +449,43 @@ describe('dutchBuildings', () => {
       ],
     });
   });
+
+  it('aborts upstream calls that exceed the per-source timeout', async () => {
+    // Each fetch should be invoked with an AbortSignal; if the signal aborts we
+    // must surface a friendly timeout error and fall through to the next source
+    // instead of waiting forever (which was making building import feel stuck).
+    const fetchImpl = vi.fn((_url: string, init?: { signal?: AbortSignal }) => {
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+    });
+    const fetchAsTyped = fetchImpl as unknown as typeof fetch;
+
+    vi.useFakeTimers();
+    try {
+      const pending = fetchDutchBuildingObjects({ lat: 51.25, lon: 5.98 }, { fetchImpl: fetchAsTyped });
+      // Attach a catch handler synchronously so the rejection that fires during
+      // advanceTimersByTimeAsync isn't reported as unhandled.
+      const settled = pending.then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      // 3DBAG (8s) + PDOK (8s) + OSM (20s) = 36s total worst case.
+      await vi.advanceTimersByTimeAsync(40_000);
+      const result = await settled;
+      expect(result.ok).toBe(false);
+      expect(String((result as { ok: false; error: unknown }).error)).toMatch(/3D BAG reageerde niet binnen 8s/);
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      expect(fetchImpl.mock.calls.every(([, init]) => Boolean(init?.signal))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 
   it('parses PDOK BAG RD coordinates as WGS84 footprints', () => {
     const buildings = parsePdokBagResponse({
