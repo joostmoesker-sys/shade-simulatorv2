@@ -82,6 +82,33 @@ describe('Scene object schemas', () => {
       }),
     ).toThrow();
   });
+
+  it('accepts optional building roof surfaces', () => {
+    const building = BuildingObjectSchema.parse({
+      id: 'b1',
+      kind: 'building',
+      position: { lat: 52, lon: 5 },
+      footprint: [
+        [5, 52],
+        [5.0001, 52],
+        [5.0001, 52.0001],
+      ],
+      heightM: 6,
+      roofSurfaces: [
+        {
+          footprint: [
+            [5, 52],
+            [5.0001, 52],
+            [5.00005, 52.00005],
+          ],
+          baseHeightM: 4,
+          heightM: 6,
+        },
+      ],
+    });
+
+    expect(building.roofSurfaces?.[0].baseHeightM).toBe(4);
+  });
 });
 
 describe('PV / inverter / battery schemas', () => {

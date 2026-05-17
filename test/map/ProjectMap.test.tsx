@@ -24,6 +24,7 @@ const { FakeMap, FakeMarker } = vi.hoisted(() => {
     setLayoutProperty = vi.fn((layer: string, property: string, value: string) => {
       this.layoutCalls.push([layer, property, value]);
     });
+    triggerRepaint = vi.fn();
     getSource = vi.fn((id: string) => this.sources.get(id));
     on = vi.fn((event: string, layerOrHandler: unknown, maybeHandler?: unknown) => {
       if (event === 'load' && typeof layerOrHandler === 'function') {
@@ -131,6 +132,22 @@ describe('<ProjectMap>', () => {
       );
       expect(FakeMap.instances[0].addLayer).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'shade-shadows-fill', source: 'shade-shadows' }),
+      );
+    });
+  });
+
+  it('renders scene objects as 3D extrusions', async () => {
+    render(<ProjectMap />);
+
+    await waitFor(() => {
+      expect(FakeMap.instances[0].addLayer).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'buildings-extrusion', type: 'fill-extrusion' }),
+      );
+      expect(FakeMap.instances[0].addLayer).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'building-roofs-mesh', type: 'custom', renderingMode: '3d' }),
+      );
+      expect(FakeMap.instances[0].addLayer).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'tree-crowns-extrusion', type: 'fill-extrusion' }),
       );
     });
   });

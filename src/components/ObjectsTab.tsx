@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { fetchDutchBuildingObjects } from '../data/dutchBuildings';
+import { fetchDutchTreeObjects } from '../data/dutchTrees';
 import { sceneObjectKindLabel } from '../model/sceneObjectLabels';
 import { useProjectStore } from '../store/projectStore';
 import type { BuildingObject, SceneObject, TreeObject } from '../model/schema';
@@ -26,6 +28,16 @@ export function ObjectsTab() {
   const setObjectMapAddKind = useProjectStore((s) => s.setObjectMapAddKind);
   const [footprintText, setFootprintText] = useState('');
   const [footprintError, setFootprintError] = useState<string | null>(null);
+  const [buildingImportState, setBuildingImportState] = useState<{
+    loading: boolean;
+    message: string | null;
+    error: string | null;
+  }>({ loading: false, message: null, error: null });
+  const [treeImportState, setTreeImportState] = useState<{
+    loading: boolean;
+    message: string | null;
+    error: string | null;
+  }>({ loading: false, message: null, error: null });
 
   const selectedObject = project.scene.objects.find((object) => object.id === selectedId) ?? null;
 
@@ -74,6 +86,60 @@ export function ObjectsTab() {
     }
   };
 
+  const importBuildings = async () => {
+    setBuildingImportState({ loading: true, message: null, error: null });
+    try {
+      const buildings = await fetchDutchBuildingObjects(project.location);
+      const existingCenters = project.scene.objects
+        .filter((object): object is BuildingObject => object.kind === 'building')
+        .map((object) => object.position);
+      const newBuildings = buildings.filter(
+        (building) => !existingCenters.some((position) => distanceMeters(position, building.position) < 1),
+      );
+      for (const building of newBuildings) addSceneObject(building);
+      setBuildingImportState({
+        loading: false,
+        message:
+          newBuildings.length === 0
+            ? 'Geen nieuwe gebouwen gevonden rond deze locatie.'
+            : `${newBuildings.length} gebouw(en) automatisch toegevoegd.`,
+        error: null,
+      });
+    } catch (err) {
+      setBuildingImportState({
+        loading: false,
+        message: null,
+        error: (err as Error).message,
+      });
+    }
+  };
+
+  const importTrees = async () => {
+    setTreeImportState({ loading: true, message: null, error: null });
+    try {
+      const trees = await fetchDutchTreeObjects(project.location);
+      const existingCenters = project.scene.objects
+        .filter((object): object is TreeObject => object.kind === 'tree')
+        .map((object) => object.position);
+      const newTrees = trees.filter((tree) => !existingCenters.some((position) => distanceMeters(position, tree.position) < 1));
+      for (const tree of newTrees) addSceneObject(tree);
+      setTreeImportState({
+        loading: false,
+        message:
+          newTrees.length === 0
+            ? 'Geen nieuwe bomen gevonden rond deze locatie.'
+            : `${newTrees.length} boom/bomen automatisch toegevoegd.`,
+        error: null,
+      });
+    } catch (err) {
+      setTreeImportState({
+        loading: false,
+        message: null,
+        error: (err as Error).message,
+      });
+    }
+  };
+
   return (
     <div className="panel-content editor-page">
       <aside className="editor-sidebar">
@@ -103,7 +169,29 @@ export function ObjectsTab() {
             >
               Gebouw op kaart
             </button>
+            <button type="button" disabled={buildingImportState.loading} onClick={importBuildings}>
+              {buildingImportState.loading ? 'Gebouwen ophalen…' : 'Gebouwen automatisch ophalen'}
+            </button>
+            <button type="button" disabled={treeImportState.loading} onClick={importTrees}>
+              {treeImportState.loading ? 'Bomen ophalen…' : 'Bomen automatisch ophalen'}
+            </button>
           </div>
+          {buildingImportState.message && <p className="status-message">{buildingImportState.message}</p>}
+          {buildingImportState.error && (
+            <p role="alert" className="error">
+              Automatisch ophalen mislukt: {buildingImportState.error}
+            </p>
+          )}
+          {treeImportState.message && <p className="status-message">{treeImportState.message}</p>}
+          {treeImportState.error && (
+            <p role="alert" className="error">
+              Automatisch bomen ophalen mislukt: {treeImportState.error}
+            </p>
+          )}
+          <details className="automation-plan">
+            <summary>Automatische objecten</summary>
+            <p>Gebouwen worden opgehaald uit 3D BAG met dakvlakken waar beschikbaar. Bomen worden uit OpenStreetMap-boomdata rond de projectlocatie toegevoegd.</p>
+          </details>
         </header>
 
         {project.scene.objects.length > 0 ? (
@@ -275,4 +363,10 @@ export function ObjectsTab() {
       </section>
     </div>
   );
+}
+
+function distanceMeters(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const dLat = (a.lat - b.lat) * 111_320;
+  const dLon = (a.lon - b.lon) * 111_320 * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+  return Math.hypot(dLat, dLon);
 }
