@@ -7,12 +7,19 @@ const THREE_D_BAG_BBOX_CRS = 'http://www.opengis.net/def/crs/EPSG/0/7415';
 // browser fetch is rejected by the CORS preflight check. That silent failure
 // is what was causing the importer to fall through to the 2D-only PDOK BAG
 // service, which is why imported buildings only showed up as flat boxes
-// without sloped roofs. We retry the same request through a public CORS
-// proxy so the LoD2.2 CityJSON tiles actually reach the browser.
+// without sloped roofs. We retry the same request through public CORS
+// proxies so the LoD2.2 CityJSON tiles actually reach the browser.
 const THREE_D_BAG_CORS_PROXIES = [
   (url: string) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
 ];
+// The 3DBAG API is slow: a 130m×130m LoD2.2 CityJSON tile is several MB and
+// regularly takes >10s to stream, and the public CORS proxies add more
+// latency on top. The previous 8s abort was killing perfectly good responses
+// halfway through the download, so every import silently degraded to the
+// 2D-only PDOK footprints. Give 3DBAG a generous window instead.
+const THREE_D_BAG_TIMEOUT_MS = 25_000;
 const PDOK_BAG_WFS_URL = 'https://service.pdok.nl/lv/bag/wfs/v2_0';
 const OPENSTREETMAP_OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 const DEFAULT_RADIUS_M = 65;
@@ -104,12 +111,28 @@ export async function fetchDutchBuildingObjects(
   const errors: string[] = [];
   const directUrl = buildThreeDBagItemsUrl(location, options.radiusM, options.limit);
   const threeDBagUrls = [directUrl, ...THREE_D_BAG_CORS_PROXIES.map((wrap) => wrap(directUrl))];
-  for (const url of threeDBagUrls) {
-    try {
-      const data = await fetchJson(url, fetchImpl, '3D BAG', 8_000);
-      return parseDutchBuildingResponse(data);
-    } catch (primaryError) {
-      errors.push(`3D BAG (${shortHost(url)}): ${messageOf(primaryError)}`);
+  // Fire the direct request and every CORS-proxy variant at once and use the
+  // first one that yields parseable buildings. Running them sequentially made
+  // the import wait through each broken proxy before trying the next, which in
+  // practice meant the 3D roof data never arrived before users gave up.
+  try {
+    return await firstSuccessful(
+      threeDBagUrls.map(async (url) => {
+        try {
+          const data = await fetchJson(url, fetchImpl, '3D BAG', THREE_D_BAG_TIMEOUT_MS);
+          const buildings = parseDutchBuildingResponse(data);
+          if (buildings.length === 0) throw new Error('3D BAG gaf geen gebouwen terug');
+          return buildings;
+        } catch (error) {
+          throw new Error(`3D BAG (${shortHost(url)}): ${messageOf(error)}`);
+        }
+      }),
+    );
+  } catch (threeDBagErrors) {
+    if (Array.isArray(threeDBagErrors)) {
+      errors.push(...threeDBagErrors.map(messageOf));
+    } else {
+      errors.push(messageOf(threeDBagErrors));
     }
   }
   try {
@@ -135,6 +158,37 @@ export async function fetchDutchBuildingObjects(
       throw new Error(`Gebouwen ophalen mislukt via 3D BAG, PDOK BAG en OpenStreetMap. ${errors.join('. ')}`);
     }
   }
+}
+
+/**
+ * Resolve with the first promise that fulfils; reject with the array of all
+ * errors when every promise rejects (a `Promise.any` that keeps every error
+ * message so the user sees why each 3DBAG route failed).
+ */
+function firstSuccessful<T>(promises: Promise<T>[]): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const errors: unknown[] = new Array(promises.length);
+    let rejected = 0;
+    let settled = false;
+    promises.forEach((promise, index) => {
+      promise.then(
+        (value) => {
+          if (!settled) {
+            settled = true;
+            resolve(value);
+          }
+        },
+        (error: unknown) => {
+          errors[index] = error;
+          rejected += 1;
+          if (!settled && rejected === promises.length) {
+            settled = true;
+            reject(errors);
+          }
+        },
+      );
+    });
+  });
 }
 
 function shortHost(url: string): string {

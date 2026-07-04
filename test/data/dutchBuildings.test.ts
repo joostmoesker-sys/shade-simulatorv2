@@ -378,8 +378,9 @@ describe('dutchBuildings', () => {
   it('falls back to PDOK BAG when 3D BAG cannot be fetched', async () => {
     const fetchImpl = vi
       .fn()
-      // Direct + 2 CORS-proxy attempts to 3DBAG all fail (typical when the
+      // Direct + 3 CORS-proxy attempts to 3DBAG all fail (typical when the
       // upstream blocks browsers and the public proxies are also unreachable).
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
@@ -409,7 +410,7 @@ describe('dutchBuildings', () => {
 
     const buildings = await fetchDutchBuildingObjects({ lat: 51.25, lon: 5.98 }, { fetchImpl });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
     expect(buildings[0].name).toBe('BAG pand-2');
     expect(buildings[0].heightM).toBe(6);
     expect(buildings[0].footprint[0][0]).toBeGreaterThan(3.1);
@@ -419,7 +420,8 @@ describe('dutchBuildings', () => {
   it('falls back to OpenStreetMap when 3D BAG and PDOK BAG cannot be fetched', async () => {
     const fetchImpl = vi
       .fn()
-      // 3DBAG direct + 2 CORS proxies, then PDOK BAG, all fail.
+      // 3DBAG direct + 3 CORS proxies, then PDOK BAG, all fail.
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
@@ -445,7 +447,7 @@ describe('dutchBuildings', () => {
 
     const buildings = await fetchDutchBuildingObjects({ lat: 51.25, lon: 5.98 }, { fetchImpl });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(5);
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
     expect(buildings[0]).toMatchObject({
       name: 'OpenStreetMap 123',
       heightM: 6,
@@ -513,12 +515,16 @@ describe('dutchBuildings', () => {
     };
     const fetchImpl = vi
       .fn()
+      // The direct call is CORS-blocked; the first proxy succeeds. The other
+      // proxy attempts (fired in parallel) also fail, but the successful one
+      // must win.
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      .mockResolvedValueOnce({ ok: true, json: async () => cityJsonResponse }) as unknown as typeof fetch;
+      .mockResolvedValueOnce({ ok: true, json: async () => cityJsonResponse })
+      .mockRejectedValue(new TypeError('Failed to fetch')) as unknown as typeof fetch;
 
     const buildings = await fetchDutchBuildingObjects({ lat: 52.1, lon: 5.6 }, { fetchImpl });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
     const proxyCallUrl = (fetchImpl as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[1][0];
     expect(proxyCallUrl).toMatch(/corsproxy\.io|allorigins/);
     expect(proxyCallUrl).toContain(encodeURIComponent('api.3dbag.nl'));
@@ -552,12 +558,12 @@ describe('dutchBuildings', () => {
         (value) => ({ ok: true as const, value }),
         (error: unknown) => ({ ok: false as const, error }),
       );
-      // 3DBAG direct + 2 proxies (8s each) + PDOK (8s) + OSM (20s) = 60s worst case.
+      // 3DBAG direct + 3 proxies in parallel (25s) + PDOK (8s) + OSM (20s) = 53s worst case.
       await vi.advanceTimersByTimeAsync(70_000);
       const result = await settled;
       expect(result.ok).toBe(false);
-      expect(String((result as { ok: false; error: unknown }).error)).toMatch(/3D BAG.*reageerde niet binnen 8s/);
-      expect(fetchImpl).toHaveBeenCalledTimes(5);
+      expect(String((result as { ok: false; error: unknown }).error)).toMatch(/3D BAG.*reageerde niet binnen 25s/);
+      expect(fetchImpl).toHaveBeenCalledTimes(6);
       expect(fetchImpl.mock.calls.every(([, init]) => Boolean(init?.signal))).toBe(true);
     } finally {
       vi.useRealTimers();
