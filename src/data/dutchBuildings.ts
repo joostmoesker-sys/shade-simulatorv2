@@ -2,13 +2,16 @@ import type { BuildingObject, LatLon } from '../model/schema';
 import { isDutchLonLat, isRdCoordinate, rdToWgs84, wgs84ToRd } from './rdProjection';
 
 const THREE_D_BAG_ITEMS_URL = 'https://api.3dbag.nl/collections/pand/items';
-const THREE_D_BAG_BBOX_CRS = 'http://www.opengis.net/def/crs/EPSG/0/7415';
+// Same-origin path served by the Vite dev/preview proxy (see vite.config.ts).
 // The 3DBAG OGC API does NOT send `Access-Control-Allow-Origin`, so a direct
-// browser fetch is rejected by the CORS preflight check. That silent failure
-// is what was causing the importer to fall through to the 2D-only PDOK BAG
-// service, which is why imported buildings only showed up as flat boxes
-// without sloped roofs. We retry the same request through public CORS
-// proxies so the LoD2.2 CityJSON tiles actually reach the browser.
+// browser fetch is rejected by the CORS check. That silent failure caused the
+// importer to fall through to the 2D-only PDOK BAG service, which is why
+// imported buildings only showed up as flat boxes without sloped roofs.
+// Routing the request through our own origin removes CORS entirely.
+const THREE_D_BAG_PROXY_ITEMS_PATH = '/api/3dbag/collections/pand/items';
+const THREE_D_BAG_BBOX_CRS = 'http://www.opengis.net/def/crs/EPSG/0/7415';
+// Public CORS proxies remain as a fallback for static production hosting where
+// no same-origin proxy is available.
 const THREE_D_BAG_CORS_PROXIES = [
   (url: string) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -55,6 +58,17 @@ export function buildThreeDBagItemsUrl(location: LatLon, radiusM = DEFAULT_RADIU
   url.searchParams.set('bbox-crs', THREE_D_BAG_BBOX_CRS);
   url.searchParams.set('limit', String(limit));
   return url.toString();
+}
+
+/**
+ * Rewrite a direct 3DBAG items URL to the same-origin `/api/3dbag` path that
+ * the Vite dev/preview server proxies to `https://api.3dbag.nl`. Same-origin
+ * requests are not subject to CORS, so this is the most reliable route to the
+ * LoD2.2 roof geometry when the app is served by Vite (`npm run dev`).
+ */
+export function buildProxiedThreeDBagItemsUrl(directUrl: string): string {
+  const url = new URL(directUrl);
+  return `${THREE_D_BAG_PROXY_ITEMS_PATH}${url.search}`;
 }
 
 export function buildPdokBagWfsUrl(location: LatLon, radiusM = DEFAULT_RADIUS_M, limit = DEFAULT_LIMIT): string {
@@ -110,7 +124,12 @@ export async function fetchDutchBuildingObjects(
   const fetchImpl = options.fetchImpl ?? fetch;
   const errors: string[] = [];
   const directUrl = buildThreeDBagItemsUrl(location, options.radiusM, options.limit);
-  const threeDBagUrls = [directUrl, ...THREE_D_BAG_CORS_PROXIES.map((wrap) => wrap(directUrl))];
+  const threeDBagUrls = [
+    // Same-origin Vite proxy first: immune to CORS and to public-proxy outages.
+    ...(canUseSameOriginProxy() ? [buildProxiedThreeDBagItemsUrl(directUrl)] : []),
+    directUrl,
+    ...THREE_D_BAG_CORS_PROXIES.map((wrap) => wrap(directUrl)),
+  ];
   // Fire the direct request and every CORS-proxy variant at once and use the
   // first one that yields parseable buildings. Running them sequentially made
   // the import wait through each broken proxy before trying the next, which in
@@ -197,6 +216,15 @@ function shortHost(url: string): string {
   } catch {
     return url;
   }
+}
+
+/**
+ * The same-origin `/api/3dbag` route only exists when the app is served by the
+ * Vite dev/preview server (see vite.config.ts); a relative URL is meaningless
+ * outside a browser document context.
+ */
+function canUseSameOriginProxy(): boolean {
+  return typeof window !== 'undefined' && typeof window.location?.origin === 'string';
 }
 
 export function parseDutchBuildingResponse(data: unknown): ImportedBuilding[] {

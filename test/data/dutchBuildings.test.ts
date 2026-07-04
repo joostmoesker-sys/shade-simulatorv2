@@ -378,8 +378,10 @@ describe('dutchBuildings', () => {
   it('falls back to PDOK BAG when 3D BAG cannot be fetched', async () => {
     const fetchImpl = vi
       .fn()
-      // Direct + 3 CORS-proxy attempts to 3DBAG all fail (typical when the
-      // upstream blocks browsers and the public proxies are also unreachable).
+      // Same-origin proxy + direct + 3 CORS-proxy attempts to 3DBAG all fail
+      // (typical when the upstream blocks browsers and the public proxies are
+      // also unreachable).
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
@@ -410,7 +412,7 @@ describe('dutchBuildings', () => {
 
     const buildings = await fetchDutchBuildingObjects({ lat: 51.25, lon: 5.98 }, { fetchImpl });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(5);
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
     expect(buildings[0].name).toBe('BAG pand-2');
     expect(buildings[0].heightM).toBe(6);
     expect(buildings[0].footprint[0][0]).toBeGreaterThan(3.1);
@@ -420,7 +422,8 @@ describe('dutchBuildings', () => {
   it('falls back to OpenStreetMap when 3D BAG and PDOK BAG cannot be fetched', async () => {
     const fetchImpl = vi
       .fn()
-      // 3DBAG direct + 3 CORS proxies, then PDOK BAG, all fail.
+      // 3DBAG same-origin proxy + direct + 3 CORS proxies, then PDOK BAG, all fail.
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
@@ -447,7 +450,7 @@ describe('dutchBuildings', () => {
 
     const buildings = await fetchDutchBuildingObjects({ lat: 51.25, lon: 5.98 }, { fetchImpl });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(6);
+    expect(fetchImpl).toHaveBeenCalledTimes(7);
     expect(buildings[0]).toMatchObject({
       name: 'OpenStreetMap 123',
       heightM: 6,
@@ -457,6 +460,68 @@ describe('dutchBuildings', () => {
         [5.9801, 51.2501],
       ],
     });
+  });
+
+  it('tries the same-origin /api/3dbag Vite proxy first so CORS never blocks the roof data', async () => {
+    const cityJsonResponse = {
+      type: 'FeatureCollection',
+      metadata: {
+        type: 'CityJSON',
+        version: '1.1',
+        transform: { scale: [1, 1, 1], translate: [155_000, 463_000, 0] },
+      },
+      features: [
+        {
+          type: 'CityJSONFeature',
+          id: 'NL.IMBAG.Pand.same-origin-1',
+          vertices: [
+            [0, 0, 0],
+            [20, 0, 0],
+            [20, 10, 0],
+            [0, 10, 0],
+            [10, 5, 8],
+          ],
+          CityObjects: {
+            'NL.IMBAG.Pand.same-origin-1': {
+              type: 'Building',
+              attributes: { identificatie: 'same-origin-1' },
+              geometry: [
+                {
+                  type: 'Solid',
+                  lod: '2.2',
+                  boundaries: [[[[0, 1, 2, 3]]], [[[0, 1, 4]]], [[[1, 2, 4]]], [[[2, 3, 4]]], [[[3, 0, 4]]]],
+                  semantics: {
+                    surfaces: [
+                      { type: 'GroundSurface' },
+                      { type: 'RoofSurface' },
+                      { type: 'RoofSurface' },
+                      { type: 'RoofSurface' },
+                      { type: 'RoofSurface' },
+                    ],
+                    values: [[0, 1, 1, 1, 1]],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.startsWith('/api/3dbag/collections/pand/items')) {
+        return { ok: true, json: async () => cityJsonResponse };
+      }
+      throw new TypeError('Failed to fetch');
+    }) as unknown as typeof fetch;
+
+    const buildings = await fetchDutchBuildingObjects({ lat: 51.2596, lon: 5.95726 }, { fetchImpl });
+
+    const firstUrl = (fetchImpl as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0][0];
+    expect(firstUrl).toMatch(/^\/api\/3dbag\/collections\/pand\/items\?/);
+    expect(firstUrl).toContain('bbox=');
+    expect(buildings).toHaveLength(1);
+    expect(buildings[0].name).toBe('3D BAG NL.IMBAG.Pand.same-origin-1');
+    expect(buildings[0].roofSurfaces?.length ?? 0).toBeGreaterThan(0);
   });
 
   it('retries 3D BAG through a CORS proxy when the direct request is blocked', async () => {
@@ -515,17 +580,19 @@ describe('dutchBuildings', () => {
     };
     const fetchImpl = vi
       .fn()
-      // The direct call is CORS-blocked; the first proxy succeeds. The other
-      // proxy attempts (fired in parallel) also fail, but the successful one
-      // must win.
+      // The same-origin proxy and direct call fail (e.g. static hosting without
+      // the Vite proxy, and the upstream is CORS-blocked); the first public
+      // CORS proxy succeeds. The other proxy attempts (fired in parallel) also
+      // fail, but the successful one must win.
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockResolvedValueOnce({ ok: true, json: async () => cityJsonResponse })
       .mockRejectedValue(new TypeError('Failed to fetch')) as unknown as typeof fetch;
 
     const buildings = await fetchDutchBuildingObjects({ lat: 52.1, lon: 5.6 }, { fetchImpl });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(4);
-    const proxyCallUrl = (fetchImpl as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[1][0];
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
+    const proxyCallUrl = (fetchImpl as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[2][0];
     expect(proxyCallUrl).toMatch(/corsproxy\.io|allorigins/);
     expect(proxyCallUrl).toContain(encodeURIComponent('api.3dbag.nl'));
     expect(buildings).toHaveLength(1);
@@ -563,7 +630,7 @@ describe('dutchBuildings', () => {
       const result = await settled;
       expect(result.ok).toBe(false);
       expect(String((result as { ok: false; error: unknown }).error)).toMatch(/3D BAG.*reageerde niet binnen 25s/);
-      expect(fetchImpl).toHaveBeenCalledTimes(6);
+      expect(fetchImpl).toHaveBeenCalledTimes(7);
       expect(fetchImpl.mock.calls.every(([, init]) => Boolean(init?.signal))).toBe(true);
     } finally {
       vi.useRealTimers();
